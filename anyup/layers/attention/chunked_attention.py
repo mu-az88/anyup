@@ -9,6 +9,12 @@ class CrossAttention(nn.Module):
     def __init__(self, qk_dim, num_heads,
                  q_chunk_size: Optional[int] = None,
                  store_attn: bool = False):
+        '''
+        The constructor takes: qk_dim = how wide each Q/K vector is (e.g. 128 numbers per position), 
+        num_heads = how many parallel "attention heads" to run, 
+        q_chunk_size = optional memory-saving parameter, 
+        store_attn = whether to save the attention map for visualisation.
+        '''
         super().__init__()
         self.norm_q = nn.RMSNorm(qk_dim)
         self.norm_k = nn.RMSNorm(qk_dim)
@@ -20,6 +26,12 @@ class CrossAttention(nn.Module):
             dropout=0.0,
             batch_first=True,
         )
+        '''
+        PyTorch's standard multi-head attention module. 
+        batch_first=True means tensors come in as (batch, sequence, channels) rather than (sequence, batch, channels). 
+        num_heads means it runs num_heads independent dot-product attentions in parallel, 
+        each looking at different "subspaces" — like having 4 people each reading the same document looking for different things.
+        '''
 
     @torch.no_grad()
     def _slice_mask(self, mask, start, end):
@@ -36,20 +48,61 @@ class CrossAttention(nn.Module):
     def forward(self, query, key, value, mask=None,
                 q_chunk_size: Optional[int] = None,
                 store_attn: Optional[bool] = None):
+        '''
+        Inputs arrive as (B, sequence_length, channels) tensors. 
+        Here B is batch size, 
+        sequence_length is the number of positions (e.g. 224×224 = 50176 pixels flattened), 
+        channels is qk_dim.
+        '''
         q_chunk_size = self.q_chunk_size if q_chunk_size is None else q_chunk_size
         store_attn = self.store_attn if store_attn is None else store_attn
-
+        '''
+        These two lines just resolve which value to use — the stored default or the one passed in this specific call.
+        '''
         val = key
 
+        '''
+        Wait — val = key? This looks odd. 
+        It's a placeholder: PyTorch's MHA needs something as V to compute internally, so it uses K. 
+        But we don't care about MHA's output anyway — we'll override it with the real raw value below via einsum. 
+        This is essentially a dummy V for the internal MHA call.
+
+        Notice the unusual design: PyTorch's built-in MultiheadAttention internally projects V and outputs a blended result — 
+        but the code throws that output away and only keeps the attention weight map. 
+        Then it manually blends the raw, original V using einsum. 
+        This is intentional: it preserves the original feature values without distortion from learned projections.
+
+        But why project Q, K, and V at all?
+        Here's the key question. If attention is just "find similar patches and blend them", 
+        why not compute the dot product directly on the raw inputs?
+        The answer is: the raw vectors might not be in a good "shape" for computing similarity. 
+        Imagine two feature vectors that are semantically very similar (both represent "a dog's ear") but their raw numbers happen to be very different due to how the backbone was trained. 
+        A direct dot product would give a low similarity score — wrong answer.
+        The Wq and Wk projections rotate and rescale the vectors into a new space where semantically similar things end up having high dot products. 
+        They're essentially asking: "What aspect of this vector is relevant for the question of similarity?"
+        Think of it like converting temperature units before comparing — if one number is in Celsius and another in Fahrenheit, 
+        comparing them raw is meaningless. The projection is the conversion step.
+
+        Why AnyUp is fine skipping Wv
+        Now it all connects. The Wv projection exists in standard transformers to let the model decide "which aspects of V to emphasise when blending". 
+        For a language model that's useful — 
+        when translating a French word, you might want to emphasise the grammatical aspect of some tokens and the semantic aspect of others.
+        But AnyUp's V is a DINOv2 or CLIP feature vector. 
+        Every dimension already means something carefully learned by a large pretrained model. 
+        Passing it through Wv would mix those dimensions together, producing a new vector that no longer lives in DINOv2's feature space. 
+        The whole point of the paper — and the thing that makes AnyUp work with any backbone without retraining — 
+        is that the output stays in the same space as the input features. 
+        Removing Wv is what makes that possible.
+        '''
         query = self.norm_q(query)
         key = self.norm_k(key)
 
         # Fast path: no chunking
         if q_chunk_size is None or query.size(1) <= q_chunk_size:
-            _, attn = self.attention(query, key, val,
+            _, attn = self.attention(query, key, val,   # val = key here!
                                      average_attn_weights=True,
                                      attn_mask=mask)
-            features = einsum("b i j, b j d -> b i d", attn, value)
+            features = einsum("b i j, b j d -> b i d", attn, value)   # real V here
             return features, (attn if store_attn else None)
 
         # Chunked over the query length (tgt_len)
