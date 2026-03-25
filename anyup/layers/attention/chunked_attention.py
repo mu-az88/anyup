@@ -140,6 +140,27 @@ class CrossAttentionBlock(nn.Module):
         )
         self.window_ratio = window_ratio
         self.conv2d = nn.Conv2d(qk_dim, qk_dim, kernel_size=3, stride=1, padding=1, bias=False)
+        '''
+        The conv2d here acts as a local context aggregator for the query before cross-attention. Here's why:
+
+        - q represents the feature map of the upsampled/decoded image (spatial query tokens). Before attending to the
+        encoder's key/value features, it's useful to let each query token gather information from its immediate spatial       
+        neighbors.
+        - A 3×3 conv with padding=1 does exactly that — it aggregates each spatial position with its 8 neighbors, giving each 
+        query token a richer, spatially-aware representation.
+        - Only q goes through this, not k or v, because the goal is to smooth/contextualize the query-side features before the
+        cross-attention lookup. This is a common pattern in image-to-image attention (e.g., in super-resolution or
+        segmentation decoders) to reduce noise in individual pixel/patch queries.
+
+        In short: it's a lightweight spatial smoothing step on the query features to improve cross-attention quality before   
+        flattening into tokens.
+
+        claude clarification:
+        what you mean is that we get info from neighboring queries so we can attend better to the similar area in the keys                                                                                                                         
+        Exactly. The conv2d lets each query position "see" its local neighborhood before attending to the keys, so spatially  
+        coherent regions in q produce coherent attention patterns into k/v. Instead of each pixel querying independently,
+        nearby queries agree on what they're looking for — which naturally concentrates attention on the corresponding local region in the key/value feature map.
+        '''
 
     def forward(self, q, k, v, q_chunk_size: Optional[int] = None, store_attn: Optional[bool] = None, vis_attn=False,
                 **kwargs):
