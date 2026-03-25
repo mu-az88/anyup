@@ -6,6 +6,14 @@ from .attention_masking import compute_attention_mask
 
 
 class CrossAttention(nn.Module):
+    '''
+    CrossAttention: 
+    → Takes flat sequences of Q, K, V 
+    → normalises Q and K 
+    → runs multi-head dot-product similarity 
+    → throws away the internal output 
+    → uses only the attention weights to blend the raw V values.
+    '''
     def __init__(self, qk_dim, num_heads,
                  q_chunk_size: Optional[int] = None,
                  store_attn: bool = False):
@@ -130,7 +138,15 @@ class CrossAttention(nn.Module):
         return features, attn_scores
 
 
-class CrossAttentionBlock(nn.Module):
+class CrossAttentionBlock(nn.Module): 
+    '''
+    CrossAttentionBlock: 
+    → Receives 2D image feature maps → applies a 3×3 conv to Q for local context 
+    → computes a window mask so each pixel only attends to nearby patches 
+    → flattens everything to sequences 
+    → calls CrossAttention 
+    → reshapes the output back to a 2D feature map.
+    '''
     def __init__(self, qk_dim, num_heads, window_ratio: float = 0.1,
                  q_chunk_size: Optional[int] = None, **kwargs):
         super().__init__()
@@ -166,6 +182,10 @@ class CrossAttentionBlock(nn.Module):
                 **kwargs):
         store_attn = store_attn or vis_attn
         q = self.conv2d(q)
+        '''
+        Apply the 3×3 conv to Q. Shape stays (B, 128, H_out, W_out) — 
+        same spatial size, same channels, but each position now has context from its neighbours.
+        '''
         if self.window_ratio > 0:
             attn_mask = compute_attention_mask(
                 *q.shape[-2:], *k.shape[-2:], window_size_ratio=self.window_ratio
