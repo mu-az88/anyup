@@ -7,6 +7,7 @@ from .layers import LearnedFeatureUnification
 from .layers import setup_cross_attention_block
 from .layers import RoPE
 from .layers.attention import CrossAttentionBlock
+from .modules import SpatialReflectConv3d
 from .utils.img import create_coordinate
 
 
@@ -22,10 +23,12 @@ class AnyUp(nn.Module):
             init_gaussian_derivatives=False,
             use_natten=False,
             lfu_dim=None,
+            t_k=1,
             **kwargs,
     ):
         super().__init__()
         self.qk_dim = qk_dim
+        self.t_k = t_k
         self.lfu_dim = lfu_dim if lfu_dim is not None else qk_dim
         self.window_ratio = window_ratio
         self._rb_args = dict(kernel_size=1, num_groups=8, pad_mode="reflect", norm_fn=nn.GroupNorm,
@@ -53,7 +56,7 @@ class AnyUp(nn.Module):
 
     def _make_encoder(self, in_ch, k, layers=2, first_layer_k=0, init_gaussian_derivatives=False):
         pre = (
-            nn.Conv2d(in_ch, self.qk_dim, k, padding=k // 2, padding_mode="reflect", bias=False)
+            SpatialReflectConv3d(in_ch, self.qk_dim, k, t_k=self.t_k)
             if first_layer_k == 0 else
             LearnedFeatureUnification(self.lfu_dim, first_layer_k, init_gaussian_derivatives=init_gaussian_derivatives)
         )
