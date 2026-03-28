@@ -1,0 +1,12 @@
+matplotlib
+numpy
+timm
+tensorboard
+hydra-core
+rich
+scikit-learn
+torch
+torchvision
+
+# Dev / testing
+pytest
