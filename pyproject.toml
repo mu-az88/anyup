@@ -13,7 +13,6 @@ authors = [
     { name = "Thomas Wimmer", email = "twimmer@mpi-inf.mpg.de" }
 ]
 classifiers = [
-    "License :: Other/Proprietary License",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Programming Language :: Python :: 3",
@@ -51,9 +50,6 @@ natten = [
 "Homepage" = "https://wimmerth.github.io/anyup/"
 "Repository" = "https://github.com/wimmerth/anyup"
 "Paper" = "https://arxiv.org/abs/2510.12764"
-
-[tool.setuptools]
-license-files = ["LICENSE"]
 
 [tool.setuptools.packages.find]
 where = ["."]

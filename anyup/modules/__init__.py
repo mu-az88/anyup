@@ -1,1 +1,3 @@
 from .conv3d_reflect import SpatialReflectConv3d
+from .feature_unification3d import LearnedFeatureUnification3D
+from .resblock3d import ResBlock3D

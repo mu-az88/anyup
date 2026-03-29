@@ -2,12 +2,13 @@ from torch import nn
 import torch.nn.functional as F
 import torch
 
+
 from .layers import ResBlock
 from .layers import LearnedFeatureUnification
 from .layers import setup_cross_attention_block
 from .layers import RoPE
 from .layers.attention import CrossAttentionBlock
-from .modules import SpatialReflectConv3d
+from .modules import SpatialReflectConv3d, LearnedFeatureUnification3D, ResBlock3D
 from .utils.img import create_coordinate
 
 
@@ -58,10 +59,21 @@ class AnyUp(nn.Module):
         pre = (
             SpatialReflectConv3d(in_ch, self.qk_dim, k, t_k=self.t_k)
             if first_layer_k == 0 else
-            LearnedFeatureUnification(self.lfu_dim, first_layer_k, init_gaussian_derivatives=init_gaussian_derivatives)
+            LearnedFeatureUnification3D(
+                self.lfu_dim,
+                first_layer_k,
+                t_kernel_size=self.t_k,
+                init_gaussian_derivatives=init_gaussian_derivatives
+            )
         )
-        blocks = [ResBlock(self.qk_dim if first_layer_k == 0 or i !=0 else self.lfu_dim, self.qk_dim, **self._rb_args)
-                  for i in range(layers)]
+        blocks = [
+            ResBlock3D(
+                self.qk_dim if first_layer_k == 0 or i != 0 else self.lfu_dim,
+                self.qk_dim,
+                **self._rb_args
+            )
+            for i in range(layers)
+        ]
         return nn.Sequential(pre, *blocks)
 
     def upsample(self, enc_img, feats, out_size, vis_attn=False, q_chunk_size=None):
