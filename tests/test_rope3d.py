@@ -92,7 +92,7 @@ def test_output_shape():
 # ─────────────────────────────────────────────
 # Test 4 — Rotation preserves vector magnitude
 # ─────────────────────────────────────────────
-de# replace test_rotation_preserves_norm with this
+# replace test_rotation_preserves_norm with this
 def test_zero_coords_is_identity():
     """
     When all coordinates are zero, all angles are zero.
@@ -222,7 +222,6 @@ if __name__ == "__main__":
     test_freqs_shape()
     test_weight_init_block_structure()
     test_output_shape()
-    test_rotation_preserves_norm()
     test_different_positions_differ()
     test_same_position_same_output()
     test_single_frame_matches_2d()
