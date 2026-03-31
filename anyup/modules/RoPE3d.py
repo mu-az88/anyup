@@ -19,12 +19,22 @@ class RoPE3D(nn.Module):
         self.freqs = nn.Parameter(torch.empty(3, self.dim))  # 2 → 3 axes
 
     def _device_weight_init(self):
-        freqs_1d = self.theta ** torch.linspace(0, -1, self.dim // 6)  # dim//4 → dim//6
-        freqs_1d = torch.cat([freqs_1d, freqs_1d])
-        freqs_3d = torch.zeros(3, self.dim)                             # freqs_2d → freqs_3d
-        freqs_3d[0,  :self.dim // 3]              = freqs_1d            # z (temporal)
-        freqs_3d[1,  self.dim // 3: -self.dim // 3] = freqs_1d         # x (height)
-        freqs_3d[2, -self.dim // 3:]              = freqs_1d            # y (width)
+        block = self.dim // 3
+        last_block = self.dim - 2 * block   # = block + (dim % 3), always >= block
+
+        # canonical frequency sequence for one block
+        freqs_1d = self.theta ** torch.linspace(0, -1, block // 2)
+        freqs_1d = torch.cat([freqs_1d, freqs_1d])   # length = block (even blocks only)
+
+        # cycle freqs_1d to fill any target size — same repeat logic, just longer
+        def fill(size):
+            reps = (size + len(freqs_1d) - 1) // len(freqs_1d)   # ceiling division
+            return freqs_1d.repeat(reps)[:size]
+
+        freqs_3d = torch.zeros(3, self.dim)
+        freqs_3d[0,      :block   ] = fill(block)       # z
+        freqs_3d[1,  block:block*2] = fill(block)       # x
+        freqs_3d[2, block*2:      ] = fill(last_block)  # y + overflow cycles back
         self.freqs.data.copy_(freqs_3d * 2 * torch.pi)
 
     def forward(self, x: torch.Tensor, coords: torch.Tensor) -> torch.Tensor:

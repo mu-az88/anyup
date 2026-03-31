@@ -1,5 +1,5 @@
 from .conv3d_reflect import SpatialReflectConv3d
 from .feature_unification3d import LearnedFeatureUnification3D
 from .resblock3d import ResBlock3D
-from .create_coordinates3d import create_coordinate_3d
+from .create_coordinates3d import create_coordinates_3d
 from .RoPE3d import RoPE3D

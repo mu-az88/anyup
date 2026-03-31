@@ -2,7 +2,7 @@ import torch
 import pytest
 
 from anyup.utils.img import create_coordinate
-from anyup.modules import create_coordinate_3d
+from anyup.modules import create_coordinates_3d
 
 
 # ─────────────────────────────────────────────
@@ -24,7 +24,7 @@ def test_2d_output_shape():
 def test_3d_output_shape():
     cases = [(1, 1, 1), (3, 4, 6), (5, 8, 8), (4, 14, 14)]
     for t, h, w in cases:
-        coords = create_coordinate_3d(t, h, w)
+        coords = create_coordinates_3d(t, h, w)
         assert coords.shape == (1, t * h * w, 3), \
             f"Shape mismatch for t={t}, h={h}, w={w}: got {coords.shape}"
 
@@ -36,7 +36,7 @@ def test_3d_output_shape():
 # ─────────────────────────────────────────────
 def test_3d_coordinate_range_default():
     """All three axes must span exactly [0, 1] with the default start/end."""
-    coords = create_coordinate_3d(4, 5, 6)  # t, h, w all different to catch axis mix-ups
+    coords = create_coordinates_3d(4, 5, 6)  # t, h, w all different to catch axis mix-ups
 
     for axis, name in enumerate(["z (temporal)", "x (height)", "y (width)"]):
         lo = coords[..., axis].min().item()
@@ -51,7 +51,7 @@ def test_3d_coordinate_range_default():
 # Test 4 — Custom start/end is respected (3D)
 # ─────────────────────────────────────────────
 def test_3d_coordinate_range_custom():
-    coords = create_coordinate_3d(3, 4, 5, start=-1.0, end=1.0)
+    coords = create_coordinates_3d(3, 4, 5, start=-1.0, end=1.0)
 
     for axis in range(3):
         assert coords[..., axis].min().item() == pytest.approx(-1.0)
@@ -70,7 +70,7 @@ def test_3d_axis_order():
     With indexing='ij', z varies slowest (outermost), y varies fastest (innermost).
     """
     t, h, w = 2, 3, 4
-    coords = create_coordinate_3d(t, h, w)  # (1, t*h*w, 3)
+    coords = create_coordinates_3d(t, h, w)  # (1, t*h*w, 3)
     coords = coords.view(t, h, w, 3)
 
     z_expected = torch.linspace(0.0, 1.0, t)
@@ -102,7 +102,7 @@ def test_3d_single_frame_matches_2d():
     """
     h, w = 7, 9
     coords2d = create_coordinate(h, w)            # (1, h*w, 2)
-    coords3d = create_coordinate_3d(1, h, w)      # (1, 1*h*w, 3)
+    coords3d = create_coordinates_3d(1, h, w)      # (1, 1*h*w, 3)
 
     # x and y components must match exactly
     assert torch.allclose(coords2d[..., 0], coords3d[..., 1], atol=1e-6), \
@@ -121,11 +121,11 @@ def test_3d_single_frame_matches_2d():
 # Test 7 — dtype and device are forwarded (3D)
 # ─────────────────────────────────────────────
 def test_3d_dtype_and_device():
-    coords_f64 = create_coordinate_3d(2, 4, 4, dtype=torch.float64)
+    coords_f64 = create_coordinates_3d(2, 4, 4, dtype=torch.float64)
     assert coords_f64.dtype == torch.float64, \
         f"Expected float64, got {coords_f64.dtype}"
 
-    coords_cpu = create_coordinate_3d(2, 4, 4, device=torch.device("cpu"))
+    coords_cpu = create_coordinates_3d(2, 4, 4, device=torch.device("cpu"))
     assert coords_cpu.device.type == "cpu"
 
     print("test_3d_dtype_and_device passed")
@@ -135,7 +135,7 @@ def test_3d_dtype_and_device():
 # Test 8 — Batch dim is always 1 (3D)
 # ─────────────────────────────────────────────
 def test_3d_batch_dim_is_one():
-    coords = create_coordinate_3d(3, 5, 7)
+    coords = create_coordinates_3d(3, 5, 7)
     assert coords.shape[0] == 1, \
         f"Expected batch dim 1, got {coords.shape[0]}"
 
@@ -147,7 +147,7 @@ def test_3d_batch_dim_is_one():
 # ─────────────────────────────────────────────
 def test_3d_no_nan_or_inf():
     for t, h, w in [(1, 1, 1), (4, 8, 8), (8, 14, 14)]:
-        coords = create_coordinate_3d(t, h, w)
+        coords = create_coordinates_3d(t, h, w)
         assert torch.isfinite(coords).all(), \
             f"Non-finite values found for t={t}, h={h}, w={w}"
 
@@ -163,7 +163,7 @@ def test_3d_unique_coordinates():
     should share the same coordinate vector.
     """
     t, h, w = 3, 4, 5
-    coords = create_coordinate_3d(t, h, w).squeeze(0)  # (t*h*w, 3)
+    coords = create_coordinates_3d(t, h, w).squeeze(0)  # (t*h*w, 3)
 
     n = coords.shape[0]
     unique_rows = torch.unique(coords, dim=0)

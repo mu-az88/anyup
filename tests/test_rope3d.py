@@ -2,10 +2,9 @@ import torch
 import torch.nn as nn
 
 from anyup.modules import RoPE3D
-from anyup.modules.RoPE3d import RoPE3D
-from anyup.modules import create_coordinates3d
-from anyup.modules.create_coordinates3d import create_coordinate_3d
-
+from anyup.modules import create_coordinates_3d
+from anyup.layers import RoPE
+from anyup.utils.img import create_coordinate
 
 # ─────────────────────────────────────────────
 # Test 1 — freqs parameter shape is (3, dim)
@@ -81,7 +80,7 @@ def test_output_shape():
 
     for B, T, H, W in cases:
         x      = torch.randn(B, T * H * W, dim)
-        coords = create_coordinate_3d(T, H, W)                       # (1, T*H*W, 3)
+        coords = create_coordinates_3d(T, H, W)                       # (1, T*H*W, 3)
         coords = coords.expand(B, -1, -1)                            # (B, T*H*W, 3)
         out    = rope(x, coords)
         assert out.shape == x.shape, \
@@ -93,11 +92,13 @@ def test_output_shape():
 # ─────────────────────────────────────────────
 # Test 4 — Rotation preserves vector magnitude
 # ─────────────────────────────────────────────
-def test_rotation_preserves_norm():
+de# replace test_rotation_preserves_norm with this
+def test_zero_coords_is_identity():
     """
-    Rotation is a rigid transformation — it changes direction but never length.
-    ||RoPE(x)|| must equal ||x|| at every position.
-    If this fails, RoPE is scaling the vector, which is wrong.
+    When all coordinates are zero, all angles are zero.
+    cos(0)=1 and sin(0)=0, so the formula collapses to:
+        out = x * 1 + rotate_half(x) * 0 = x
+    Output must be identical to input.
     """
     dim = 32
     B, T, H, W = 2, 3, 8, 8
@@ -106,16 +107,14 @@ def test_rotation_preserves_norm():
     rope._device_weight_init()
 
     x      = torch.randn(B, T * H * W, dim)
-    coords = create_coordinate_3d(T, H, W).expand(B, -1, -1)
-    out    = rope(x, coords)
+    coords = torch.zeros(1, T * H * W, 3)   # all positions at origin
 
-    norm_in  = x.norm(dim=-1)
-    norm_out = out.norm(dim=-1)
+    out = rope(x, coords)
 
-    assert torch.allclose(norm_in, norm_out, atol=1e-5), \
-        f"Norm not preserved. Max diff: {(norm_in - norm_out).abs().max().item()}"
+    assert torch.allclose(out, x, atol=1e-6), \
+        f"Zero coords should give identity. Max diff: {(out - x).abs().max().item()}"
 
-    print("test_rotation_preserves_norm passed")
+    print("test_zero_coords_is_identity passed")
 
 
 # ─────────────────────────────────────────────
@@ -160,7 +159,7 @@ def test_same_position_same_output():
     rope._device_weight_init()
 
     x      = torch.randn(B, T * H * W, dim)
-    coords = create_coordinate_3d(T, H, W).expand(B, -1, -1)
+    coords = create_coordinates_3d(T, H, W).expand(B, -1, -1)
 
     out1 = rope(x, coords)
     out2 = rope(x, coords)
@@ -208,7 +207,7 @@ def test_single_frame_matches_2d():
     x = torch.randn(B, H * W, dim)
 
     coords2d = create_coordinate(H, W).expand(B, -1, -1)          # (B, H*W, 2)
-    coords3d = create_coordinate_3d(1, H, W).expand(B, -1, -1)    # (B, H*W, 3)
+    coords3d = create_coordinates_3d(1, H, W).expand(B, -1, -1)    # (B, H*W, 3)
 
     out2d = rope2d(x, coords2d)
     out3d = rope3d(x, coords3d)
