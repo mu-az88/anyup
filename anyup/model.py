@@ -2,6 +2,8 @@ from torch import nn
 import torch.nn.functional as F
 import torch
 
+from anyup.modules.RoPE3d import RoPE3D
+
 
 from .layers import ResBlock
 from .layers import LearnedFeatureUnification
@@ -52,7 +54,7 @@ class AnyUp(nn.Module):
         self.aggregation = self._make_encoder(2 * qk_dim, 3)
 
         # RoPE for (H*W, C)
-        self.rope = RoPE(qk_dim)
+        self.rope = RoPE3D(qk_dim)
         self.rope._device_weight_init()
 
     def _make_encoder(self, in_ch, k, layers=2, first_layer_k=0, init_gaussian_derivatives=False):
@@ -77,13 +79,19 @@ class AnyUp(nn.Module):
         return nn.Sequential(pre, *blocks)
 
     def upsample(self, enc_img, feats, out_size, vis_attn=False, q_chunk_size=None):
-        b, c, h, w = feats.shape
+        b, c, t, h, w = feats.shape                                          # 2D: b, c, h, w
 
         # Q
-        q = F.adaptive_avg_pool2d(self.query_encoder(enc_img), output_size=out_size)
+        q = F.adaptive_avg_pool3d(                                            # 2D: adaptive_avg_pool2d
+            self.query_encoder(enc_img),
+            output_size=(t, *out_size)                                        # 2D: out_size
+        )
 
         # K
-        k = F.adaptive_avg_pool2d(self.key_encoder(enc_img), output_size=(h, w))
+        k = F.adaptive_avg_pool3d(                                            # 2D: adaptive_avg_pool2d
+            self.key_encoder(enc_img),
+            output_size=(t, h, w)                                             # 2D: (h, w)
+        )
         k = torch.cat([k, self.key_features_encoder(F.normalize(feats, dim=1))], dim=1)
         k = self.aggregation(k)
 
