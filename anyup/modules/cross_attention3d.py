@@ -85,14 +85,14 @@ class CrossAttentionBlock3D(nn.Module):
     def forward(self, q, k, v, q_chunk_size: Optional[int] = None,
                 store_attn: Optional[bool] = None, **kwargs):
         b, _, t, h, w = q.shape
-        _, _, t_k, h_k, w_k = k.shape
+        _, _, _, h_k, w_k = k.shape
         c = v.shape[1]
 
         q = self.conv3d(q)
 
         if self.window_ratio > 0:
             attn_mask = compute_attention_mask_3d(
-                t, h, w, t_k, h_k, w_k,
+                t, h, w, h_k, w_k,
                 spatial_ratio=self.window_ratio,
                 window_t=self.window_t
             ).to(q.device)
@@ -100,8 +100,8 @@ class CrossAttentionBlock3D(nn.Module):
             attn_mask = None
 
         q = q.permute(0, 2, 3, 4, 1).reshape(b, t * h * w, -1)
-        k = k.permute(0, 2, 3, 4, 1).reshape(b, t_k * h_k * w_k, -1)
-        v = v.permute(0, 2, 3, 4, 1).reshape(b, t_k * h_k * w_k, -1)
+        k = k.permute(0, 2, 3, 4, 1).reshape(b, t * h_k * w_k, -1)
+        v = v.permute(0, 2, 3, 4, 1).reshape(b, t * h_k * w_k, -1)
 
         features, attn = self.cross_attn(q, k, v, mask=attn_mask,
                                           q_chunk_size=q_chunk_size,

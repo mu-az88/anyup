@@ -73,16 +73,17 @@ def compute_attention_mask(high_res_h, high_res_w, low_res_h, low_res_w,
 # ── New 3D mask ──────────────────────────────────────────────────
 
 @lru_cache
-def compute_attention_mask_3d(T_q, H_q, W_q,
-                              T_k, H_k, W_k,
+def compute_attention_mask_3d(T, H_q, W_q,
+                              H_k, W_k,
                               spatial_ratio,
                               window_t=None,
                               device="cpu"):
     """
     3D attention mask for (T, H, W) flattened sequences.
 
-    Returns a boolean mask of shape (T_q*H_q*W_q, T_k*H_k*W_k)
-    with True = blocked (same convention as compute_attention_mask).
+    Q and K share the same temporal dimension T (spatial upsampling only —
+    no frame interpolation). Returns a boolean mask of shape
+    (T*H_q*W_q, T*H_k*W_k) with True = blocked.
 
     Flatten order is (t, h, w) — T outermost.
 
@@ -91,45 +92,24 @@ def compute_attention_mask_3d(T_q, H_q, W_q,
     spatial_ratio : float
         Window ratio for H, W dimensions (same as 2D window_size_ratio).
     window_t : int or None
-        Each query at frame t_q attends to keys at frames
-        |t_q_normalized - t_k_normalized| mapped through the same
-        floor/ceil quantisation as spatial, but using integer ± window.
+        Attends to keys at frames where |t_q - t_k| <= window_t.
         None means no temporal restriction (attend to all frames).
     """
-    # ── spatial mask: reuse existing 2D ──
-    # shape (H_q*W_q, H_k*W_k), True = blocked
     spatial_blocked = compute_attention_mask(
         H_q, W_q, H_k, W_k, spatial_ratio, device=device
     )
-    spatial_allowed = ~spatial_blocked  # True = can attend
+    spatial_allowed = ~spatial_blocked
 
-    # ── temporal mask ──
-    # shape (T_q, T_k), True = can attend
     if window_t is None:
-        temporal_allowed = torch.ones(T_q, T_k, dtype=torch.bool, device=device)
+        temporal_allowed = torch.ones(T, T, dtype=torch.bool, device=device)
     else:
-        tq = torch.arange(T_q, device=device)
-        tk = torch.arange(T_k, device=device)
-        # normalise to [0, 1) then map to key-frame indices
-        # same logic as spatial: query center in normalised coords,
-        # ± window_t key-frame steps
-        if T_q == T_k:
-            # common case: same temporal resolution
-            temporal_allowed = (tq[:, None] - tk[None, :]).abs() <= window_t
-        else:
-            # different temporal resolutions: normalise query position
-            # to key grid, then apply integer window
-            tq_on_k = (tq.float() + 0.5) / T_q * T_k  # center of query frame in key-frame coords
-            temporal_allowed = (tq_on_k[:, None] - (tk.float()[None, :] + 0.5)).abs() < (window_t + 0.5)
+        t_idx = torch.arange(T, device=device)
+        temporal_allowed = (t_idx[:, None] - t_idx[None, :]).abs() <= window_t
 
-    # ── combine: outer product over (T, spatial) ──
-    # temporal_allowed: (T_q, T_k)
-    # spatial_allowed:  (H_q*W_q, H_k*W_k)
-    # target:           (T_q * H_q*W_q,  T_k * H_k*W_k)
     combined = (
-        temporal_allowed[:, None, :, None]    # (T_q, 1,      T_k, 1)
-        & spatial_allowed[None, :, None, :]   # (1,   HqWq,   1,   HkWk)
-    )  # → (T_q, HqWq, T_k, HkWk)
+        temporal_allowed[:, None, :, None]
+        & spatial_allowed[None, :, None, :]
+    )  # (T, H_q*W_q, T, H_k*W_k)
 
-    combined = combined.reshape(T_q * H_q * W_q, T_k * H_k * W_k)
+    combined = combined.reshape(T * H_q * W_q, T * H_k * W_k)
     return ~combined  # True = blocked

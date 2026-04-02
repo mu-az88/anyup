@@ -7,14 +7,14 @@ from anyup.modules.attention_masking3d import compute_attention_mask, compute_at
 # ─────────────────────────────────────────────
 def test_single_frame_matches_2d():
     """
-    With T_q=T_k=1, the 3D mask should be identical to the 2D mask.
+    With T=1, the 3D mask should be identical to the 2D mask.
     """
     H_q, W_q = 8, 12
     H_k, W_k = 4, 6
     ratio = 0.15
 
     mask_2d = compute_attention_mask(H_q, W_q, H_k, W_k, ratio)
-    mask_3d = compute_attention_mask_3d(1, H_q, W_q, 1, H_k, W_k,
+    mask_3d = compute_attention_mask_3d(1, H_q, W_q, H_k, W_k,
                                         spatial_ratio=ratio, window_t=None)
 
     assert mask_3d.shape == mask_2d.shape, \
@@ -30,7 +30,7 @@ def test_single_frame_matches_2d():
 # ─────────────────────────────────────────────
 def test_temporal_exclusion():
     """
-    With window_t=0 and T_q=T_k=4, a query at frame t can only attend
+    With window_t=0 and T=4, a query at frame t can only attend
     to keys at frame t. All cross-frame entries must be blocked.
     """
     T = 4
@@ -38,7 +38,7 @@ def test_temporal_exclusion():
     H_k, W_k = 2, 2
     ratio = 0.5  # generous spatial window so spatial isn't the bottleneck
 
-    mask = compute_attention_mask_3d(T, H_q, W_q, T, H_k, W_k,
+    mask = compute_attention_mask_3d(T, H_q, W_q, H_k, W_k,
                                      spatial_ratio=ratio, window_t=0)
 
     S_q = H_q * W_q  # 16
@@ -65,13 +65,14 @@ def test_temporal_exclusion():
 # Test 3 — Shape and dtype
 # ─────────────────────────────────────────────
 def test_shape_and_dtype():
-    T_q, H_q, W_q = 3, 6, 8
-    T_k, H_k, W_k = 5, 3, 4
+    T = 3
+    H_q, W_q = 6, 8
+    H_k, W_k = 3, 4
 
-    mask = compute_attention_mask_3d(T_q, H_q, W_q, T_k, H_k, W_k,
+    mask = compute_attention_mask_3d(T, H_q, W_q, H_k, W_k,
                                      spatial_ratio=0.2, window_t=1)
 
-    expected = (T_q * H_q * W_q, T_k * H_k * W_k)
+    expected = (T * H_q * W_q, T * H_k * W_k)
     assert mask.shape == expected, f"Shape {mask.shape} != {expected}"
     assert mask.dtype == torch.bool, f"dtype {mask.dtype} != torch.bool"
 
