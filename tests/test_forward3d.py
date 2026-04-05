@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from anyup.model import AnyUp
 from anyup.modules import RoPE3D
-from anyup.modules.create_coordinates_3d import create_coordinates_3d
+from anyup.modules.create_coordinates3d import create_coordinates_3d
 from anyup.modules.cross_attention3d import CrossAttentionBlock3D
 
 
