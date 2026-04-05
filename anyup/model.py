@@ -11,7 +11,7 @@ from .layers import setup_cross_attention_block
 from .layers import RoPE
 from .layers.attention import CrossAttentionBlock
 from .modules import SpatialReflectConv3d, LearnedFeatureUnification3D, ResBlock3D
-from .utils.img import create_coordinate
+from .utils.img import create_coordinate, create_coordinates_3d   
 
 
 class AnyUp(nn.Module):
@@ -105,12 +105,21 @@ class AnyUp(nn.Module):
 
         return self.cross_decode(q, k, v, vis_attn=vis_attn, q_chunk_size=q_chunk_size)
 
+
     def forward(self, image, features, output_size=None, vis_attn=False, q_chunk_size=None):
+        # output_size is still spatial-only (H, W); image.shape[-2:] works for both 4D and 5D
         output_size = output_size if output_size is not None else image.shape[-2:]
-        enc = self.image_encoder(image)
-        h = enc.shape[-2]
-        coords = create_coordinate(h, enc.shape[-1], device=enc.device, dtype=enc.dtype)
-        enc = enc.permute(0, 2, 3, 1).view(enc.shape[0], -1, enc.shape[1])
-        enc = self.rope(enc, coords)
-        enc = enc.view(enc.shape[0], h, -1, enc.shape[-1]).permute(0, 3, 1, 2)
+
+        enc = self.image_encoder(image)               # (b, c, t, h, w)
+        t, h, w = enc.shape[-3], enc.shape[-2], enc.shape[-1]
+
+        coords = create_coordinates_3d(t, h, w, device=enc.device, dtype=enc.dtype)  # (1, t*h*w, 3)
+
+        # Flatten spatiotemporal tokens: (b, c, t, h, w) → (b, t*h*w, c)
+        enc = enc.permute(0, 2, 3, 4, 1).reshape(enc.shape[0], -1, enc.shape[1])
+        enc = self.rope(enc, coords)                  # (b, t*h*w, c)
+
+        # Restore 5D layout: (b, t*h*w, c) → (b, c, t, h, w)
+        enc = enc.view(enc.shape[0], t, h, w, enc.shape[-1]).permute(0, 4, 1, 2, 3)
+
         return self.upsample(enc, features, output_size, vis_attn=vis_attn, q_chunk_size=q_chunk_size)
