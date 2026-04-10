@@ -197,3 +197,106 @@ def temporal_consistency_loss(
     # normalise by number of active pairs to avoid scale collapse when many pairs are gated
     n_active = gate.sum().clamp(min=1.0)   # ↑ clamp avoids div-by-zero on all-action clips
     return gated_loss.sum() / n_active
+
+# Add to anyup/data/training/losses.py
+
+
+def get_lambda3(
+    step: int,              # ↑ current global training step
+    lambda3_max: float,     # ↑ target λ3 value after warmup (e.g. 0.01)
+    warmup_steps: int,      # ↑ number of steps to ramp from 0 → lambda3_max
+                            #   set in config (task 5.1); increase if temporal loss destabilises early training
+) -> float:
+    """
+    Linear warmup schedule for λ3 (temporal consistency weight).
+    Returns 0.0 for step < warmup_steps, lambda3_max at step >= warmup_steps.
+    """
+    if warmup_steps <= 0:
+        return lambda3_max                              # no warmup — use max immediately
+    return min(lambda3_max, lambda3_max * step / warmup_steps)  # linear ramp
+
+
+def combined_loss(
+    # --- predictions ---
+    q_pred: torch.Tensor,       # (B, T, H, W, C) — high-res model output q'
+    q_target: torch.Tensor,     # (B, T, h_gt, w_gt, C) — GT encoder features q̂
+    p: torch.Tensor,            # (B, T, h, w, C) — coarse input features
+    V: torch.Tensor,            # (B, T, H, W, 3) — RGB guidance video, float in [0,1]
+    model,                      # AnyUp3D — needed for L_self forward passes
+
+    # --- fixed weights ---
+    lambda1: float = 0.5,       # ↑ weight for L_input-consistency
+    lambda2: float = 0.5,       # ↑ weight for L_self-consistency
+                                #   if self-consistency dominates, reduce lambda2 first
+
+    # --- temporal schedule ---
+    lambda3_max: float = 0.01,  # ↑ max weight for L_temporal — keep small; temporal loss is supplementary
+    warmup_steps: int  = 1000,  # ↑ steps before lambda3 reaches max; increase for unstable early training
+                                #   depends on T-curriculum (task 5.3): set >= steps before T>1 is reached
+    step: int = 0,              # ↑ current global step — passed in from training loop (task 5.2)
+
+    # --- augmentation params forwarded to L_self ---
+    brightness_range: tuple = (0.85, 1.15),  # ↑ see augmentations.py
+    contrast_range:   tuple = (0.85, 1.15),  # ↑ see augmentations.py
+    noise_std: float = 0.02,                  # ↑ see augmentations.py
+
+    # --- gate param forwarded to L_temporal ---
+    rgb_diff_threshold: float = 0.05,         # ↑ see temporal_consistency_loss
+
+) -> dict:
+    """
+    Full AnyUp3D training objective.
+
+    Returns a dict with keys:
+        'total'        — scalar to call .backward() on
+        'reconstruction' — L_cos-mse (unweighted)
+        'input'        — L_input-consistency (unweighted)
+        'self'         — L_self-consistency (unweighted)
+        'temporal'     — L_temporal-consistency (unweighted)
+        'lambda3'      — current λ3 value (for logging)
+
+    Returning individual components lets the training loop log each separately
+    (task 5.5) without recomputing them.
+    """
+    # --- L_reconstruction ---
+    l_recon = cos_mse_loss(q_pred, q_target)            # scalar
+
+    # --- L_input-consistency ---
+    l_input = input_consistency_loss(q_pred, p)         # scalar
+
+    # --- L_self-consistency ---
+    # ↓ runs model twice — most expensive loss; disable first if OOM
+    l_self  = self_consistency_loss(
+        model, p, V,
+        brightness_range=brightness_range,
+        contrast_range=contrast_range,
+        noise_std=noise_std,
+    )                                                   # scalar
+
+    # --- L_temporal-consistency ---
+    # ↓ self-disables (returns 0.0) when T=1 — safe to call unconditionally
+    l_temporal = temporal_consistency_loss(
+        q_pred, V,
+        rgb_diff_threshold=rgb_diff_threshold,
+    )                                                   # scalar
+
+    # --- current λ3 ---
+    lam3 = get_lambda3(step, lambda3_max, warmup_steps)
+
+    # --- combine ---
+    # ↓ total is the only tensor .backward() is called on in the training loop
+    total = (
+        l_recon
+        + lambda1 * l_input
+        + lambda2 * l_self
+        + lam3    * l_temporal
+    )
+
+    return {
+        "total":          total,
+        "reconstruction": l_recon.detach(),
+        "input":          l_input.detach(),
+        "self":           l_self.detach(),
+        "temporal":       l_temporal.detach(),
+        "lambda3":        lam3,
+    }
