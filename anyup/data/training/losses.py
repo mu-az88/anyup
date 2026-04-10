@@ -1,7 +1,7 @@
 
 import torch
 import torch.nn.functional as F
-
+from anyup.data.training.augmentations import augment_guidance_video
 
 def cos_mse_loss(
     pred: torch.Tensor,   # (B, T, h, w, C)  — model output q'
@@ -36,3 +36,164 @@ def cos_mse_loss(
     mse_loss = F.mse_loss(pred_flat, target_flat, reduction="mean")  # scalar
 
     return cos_loss + mse_loss
+
+
+
+
+def input_consistency_loss(
+    q_pred: torch.Tensor,  # (B, T, H, W, C) — high-res model output q'
+    p: torch.Tensor,       # (B, T, h, w, C) — coarse input features (low-res)
+) -> torch.Tensor:
+    """
+    L_input-consistency: downsample q' spatially to match p's resolution,
+    then compute cos_mse_loss(q'_downsampled, p).
+
+    Downsampling is spatial-only (per frame) — the T dimension is never touched.
+
+    Args:
+        q_pred: (B, T, H, W, C)  high-resolution predicted features
+        p:      (B, T, h, w, C)  coarse input feature volume
+
+    Returns:
+        Scalar loss tensor.
+    """
+    B, T, H, W, C = q_pred.shape   # ↑ H, W = high-res spatial dims (e.g. 56x56)
+    _, _, h, w, _ = p.shape         # ↑ h, w = low-res spatial dims (e.g. 14x14)
+                                    #   ratio H/h must match the model's upsampling factor
+
+    # --- move C before spatial dims for F.interpolate ---
+    # F.interpolate expects (N, C, H, W); we have (B, T, H, W, C)
+    # Merge B and T into a single batch axis → (B*T, C, H, W)
+    # ↓ B*T is the effective batch size here; large T multiplies memory linearly
+    q_flat = q_pred.permute(0, 1, 4, 2, 3)         # (B, T, C, H, W)
+    q_flat = q_flat.reshape(B * T, C, H, W)         # (B*T, C, H, W) — ↑ depends on T (curriculum)
+
+    # --- spatial downsampling, per frame, no temporal touching ---
+    # mode="area" = proper anti-aliased average pooling when shrinking
+    # ↓ target size (h, w) must match p's spatial dims exactly
+    q_down = F.interpolate(
+        q_flat,
+        size=(h, w),        # ↓ low-res target; if you change patch size, update here
+        mode="area",        # correct for downsampling; switch to "bilinear" only if upsampling
+    )                       # → (B*T, C, h, w)
+
+    # --- restore (B, T, h, w, C) to match p's layout ---
+    q_down = q_down.reshape(B, T, C, h, w)          # (B, T, C, h, w)
+    q_down = q_down.permute(0, 1, 3, 4, 2)          # (B, T, h, w, C)
+
+    return cos_mse_loss(q_down, p)
+
+
+def self_consistency_loss(
+    model,                          # AnyUp3D — callable: (p, V) → q' of shape (B, T, H, W, C)
+    p: torch.Tensor,                # (B, T, h, w, C) — coarse feature input; shared across both branches
+    V: torch.Tensor,                # (B, T, H, W, 3) — clean guidance video, float in [0, 1]
+    brightness_range: tuple = (0.85, 1.15),  # ↑ passed to augment_guidance_video
+    contrast_range:   tuple = (0.85, 1.15),  # ↑ passed to augment_guidance_video
+    noise_std: float = 0.02,                  # ↑ passed to augment_guidance_video
+) -> torch.Tensor:
+    """
+    L_self-consistency = L_cos-mse(f(p, V), f(p, V_aug))
+
+    Gradients flow only through the clean branch f(p, V).
+    The augmented branch runs under torch.no_grad() — it is the pseudo-target.
+
+    Args:
+        model:  AnyUp3D model (must be in train mode for the clean branch)
+        p:      (B, T, h, w, C)  coarse input features
+        V:      (B, T, H, W, 3)  clean RGB guidance frames
+
+    Returns:
+        Scalar loss tensor (with grad attached via clean branch).
+    """
+    # --- augmented branch: no gradients, treated as fixed target ---
+    # ↓ this forward pass costs the same memory as the clean pass but no backward graph
+    # ↓ if OOM: move augmented branch to after clean branch so activations don't overlap
+    V_aug = augment_guidance_video(V, brightness_range, contrast_range, noise_std)
+    with torch.no_grad():
+        q_aug = model(p, V_aug)     # (B, T, H, W, C) — pseudo-target, detached
+
+    # --- clean branch: gradients flow normally ---
+    # ↓ this is the expensive pass — activations retained for backward
+    # ↓ if OOM at this step: enable gradient checkpointing on CrossAttentionBlock3D (task 7.2)
+    q_clean = model(p, V)           # (B, T, H, W, C) — prediction with grad
+
+    # cos_mse_loss averages over (B, T, H, W) — scalar
+    return cos_mse_loss(q_clean, q_aug.detach())  # .detach() is redundant but explicit
+
+# Add to anyup/data/training/losses.py
+
+def _cos_mse_per_pair(
+    a: torch.Tensor,  # (B, T-1, H, W, C)
+    b: torch.Tensor,  # (B, T-1, H, W, C)
+) -> torch.Tensor:
+    """
+    Per-pair cos-mse loss without global reduction.
+    Returns (B, T-1) — one scalar per adjacent frame pair per sample.
+    Needed so the temporal gate can zero out specific pairs before averaging.
+    """
+    B, Tm1, H, W, C = a.shape  # ↑ Tm1 = T-1 pairs; grows with T (curriculum)
+
+    # flatten spatial for cosine_similarity — (B*Tm1, H*W, C)
+    # ↓ H*W*C floats per pair — reduce H,W or T if OOM
+    a_flat = a.reshape(B * Tm1, H * W, C)   # ↑ depends on H,W (model output resolution)
+    b_flat = b.reshape(B * Tm1, H * W, C)
+
+    # cosine similarity → (B*Tm1, H*W), mean over spatial → (B*Tm1,)
+    cos_sim  = F.cosine_similarity(a_flat, b_flat, dim=-1)  # (B*Tm1, H*W)
+    cos_loss = (1.0 - cos_sim).mean(dim=-1)                 # (B*Tm1,)
+
+    # MSE per pair — mean over H*W*C → (B*Tm1,)
+    mse_loss = ((a_flat - b_flat) ** 2).mean(dim=(-1, -2))  # (B*Tm1,)
+
+    # per-pair loss → (B, T-1)
+    return (cos_loss + mse_loss).reshape(B, Tm1)
+
+
+def temporal_consistency_loss(
+    q_pred: torch.Tensor,       # (B, T, H, W, C) — model output q'
+    V: torch.Tensor,            # (B, T, H, W, 3) — RGB guidance video, float in [0,1]
+    rgb_diff_threshold: float = 0.05,  # ↑ gate threshold; lower = stricter (fewer pairs used)
+                                       #   0.05 ≈ normal motion; raise to 0.10 for action video
+) -> torch.Tensor:
+    """
+    L_temporal-consistency: penalise feature flicker between adjacent frames,
+    gated by how much the RGB actually changed.
+
+    Gate logic: if mean(|V_t - V_{t-1}|) < threshold → apply loss on this pair.
+    Pairs with large RGB change (motion/cuts) are zeroed out before averaging.
+
+    Returns:
+        Scalar loss. Returns 0.0 if ALL pairs are gated out (e.g. pure action clip).
+    """
+    B, T, H, W, C = q_pred.shape   # ↑ T set by curriculum scheduler (task 5.3)
+                                    # ↑ H,W = high-res output spatial dims
+
+    if T < 2:
+        # T=1 warmup stage — no adjacent pairs exist, loss is zero
+        return q_pred.new_tensor(0.0)
+
+    # --- adjacent feature pairs ---
+    q_curr = q_pred[:, 1:,  ...]   # (B, T-1, H, W, C) — frames 1..T-1
+    q_prev = q_pred[:, :-1, ...]   # (B, T-1, H, W, C) — frames 0..T-2
+
+    # --- RGB gate: mean absolute diff per adjacent frame pair ---
+    # V diff → (B, T-1, H, W, 3)
+    v_diff = (V[:, 1:, ...] - V[:, :-1, ...]).abs()            # (B, T-1, H, W, 3)
+    # ↓ mean over H, W, C → (B, T-1) scalar per pair
+    v_diff_mean = v_diff.mean(dim=(2, 3, 4))                   # (B, T-1)
+                                                                # ↑ cheap — no learned params
+
+    # gate = 1 where scene is stable, 0 where there's large motion/cut
+    # ↓ rgb_diff_threshold is the key tuning knob — see docstring
+    gate = (v_diff_mean < rgb_diff_threshold).float()          # (B, T-1)
+
+    # --- per-pair loss ---
+    pair_loss = _cos_mse_per_pair(q_curr, q_prev)              # (B, T-1)
+
+    # --- apply gate before averaging ---
+    gated_loss = pair_loss * gate                               # (B, T-1), zeroed on fast pairs
+
+    # normalise by number of active pairs to avoid scale collapse when many pairs are gated
+    n_active = gate.sum().clamp(min=1.0)   # ↑ clamp avoids div-by-zero on all-action clips
+    return gated_loss.sum() / n_active
