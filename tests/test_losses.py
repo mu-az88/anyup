@@ -1,6 +1,6 @@
 
 import torch
-from anyup.data.losses import cos_mse_loss
+from anyup.data.training.losses import cos_mse_loss
 
 
 def test_cos_mse_zero_on_identical():
