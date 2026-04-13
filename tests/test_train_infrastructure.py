@@ -16,12 +16,12 @@ Covered:
     load_checkpoint
     set_seed
     _stub_dataloader
+    get_loader
     build_gt_extractor  →  extract  (inner function)
     run_validation
 
 NOT covered (see bottom of file for explanation):
     main()
-    _get_loader()   (closure inside main)
 
 Run:
     pytest tests/test_train_infrastructure.py -v
@@ -42,21 +42,35 @@ import torch.nn as nn
 
 # ── Stub heavy project imports so train.py can be imported without the full
 #    codebase being installed. ─────────────────────────────────────────────────
+# Stub only the modules that don't exist yet — leave real packages alone.
 _STUB_MODULES = [
-    "anyup", "anyup.modules", "anyup.modules.anyup3d", "anyup.modules.losses3d",
-    "scripts", "scripts.load_2d_weights",
-    "anyup.data", "anyup.data.video_dataset",
-    "omegaconf", "transformers", "torch.utils.tensorboard",
+    "anyup.modules.anyup3d", "anyup.modules.losses3d",
+    "scripts.load_2d_weights",
+    "anyup.data.video_dataset",
 ]
+
+# Ensure parent packages exist as stubs if they're not real packages
+for _parent in ["anyup.modules", "anyup.data", "scripts"]:
+    if _parent not in sys.modules:
+        sys.modules[_parent] = types.ModuleType(_parent)
+
 for _mod in _STUB_MODULES:
     if _mod not in sys.modules:
         sys.modules[_mod] = types.ModuleType(_mod)
+
+# Stub out heavy optional dependencies that may not be installed
+if "transformers" not in sys.modules:
+    sys.modules["transformers"] = types.ModuleType("transformers")
+if "omegaconf" not in sys.modules:
+    sys.modules["omegaconf"] = types.ModuleType("omegaconf")
 
 sys.modules["anyup.modules.anyup3d"].AnyUp3D = nn.Linear
 sys.modules["anyup.modules.losses3d"].combined_loss_3d = None
 sys.modules["scripts.load_2d_weights"].load_2d_weights_into_3d = None
 sys.modules["transformers"].VideoMAEModel = MagicMock()
 sys.modules["transformers"].AutoImageProcessor = MagicMock()
+if "torch.utils.tensorboard" not in sys.modules:
+    sys.modules["torch.utils.tensorboard"] = types.ModuleType("torch.utils.tensorboard")
 sys.modules["torch.utils.tensorboard"].SummaryWriter = MagicMock()
 sys.modules["omegaconf"].OmegaConf = MagicMock()
 
@@ -80,6 +94,7 @@ temporal_lambda       = _g["temporal_lambda"]
 set_seed              = _g["set_seed"]
 _stub_dataloader      = _g["_stub_dataloader"]
 build_gt_extractor    = _g["build_gt_extractor"]
+get_loader            = _g["get_loader"]
 run_validation        = _g["run_validation"]
 
 
@@ -661,6 +676,49 @@ def test_stub_dataloader_video_values_in_unit_range():
 
 
 # ==============================================================================
+# get_loader
+# ==============================================================================
+
+def test_get_loader_returns_iterator():
+    """get_loader must return an iterator that yields dicts."""
+    cfg = _stub_cfg(img_size=16)
+    it = get_loader(cfg, t=2, batch_size=1, device=torch.device("cpu"))
+    batch = next(it)
+    assert isinstance(batch, dict), f"Expected dict, got {type(batch)}"
+    print("PASS  get_loader returns an iterator yielding dicts")
+
+
+def test_get_loader_batch_has_required_keys():
+    """get_loader's output must contain video, video_crop, patch_size."""
+    cfg = _stub_cfg(img_size=16)
+    it = get_loader(cfg, t=2, batch_size=1, device=torch.device("cpu"))
+    batch = next(it)
+    for key in ["video", "video_crop", "patch_size"]:
+        assert key in batch, f"Missing key '{key}' in batch"
+    print("PASS  get_loader batch contains all required keys")
+
+
+def test_get_loader_respects_t_and_batch_size():
+    """get_loader must forward t and batch_size to the underlying dataloader."""
+    cfg = _stub_cfg(img_size=16)
+    T, bs = 4, 3
+    it = get_loader(cfg, t=T, batch_size=bs, device=torch.device("cpu"))
+    batch = next(it)
+    assert batch["video"].shape[0] == bs, f"Batch dim: {batch['video'].shape[0]} != {bs}"
+    assert batch["video"].shape[2] == T, f"T dim: {batch['video'].shape[2]} != {T}"
+    print("PASS  get_loader respects t and batch_size parameters")
+
+
+def test_get_loader_is_infinite():
+    """get_loader must return an infinite iterator (using stub path)."""
+    cfg = _stub_cfg(img_size=8)
+    it = get_loader(cfg, t=1, batch_size=1, device=torch.device("cpu"))
+    for _ in range(20):
+        next(it)
+    print("PASS  get_loader returns an infinite iterator")
+
+
+# ==============================================================================
 # build_gt_extractor → extract  (inner function)
 # ==============================================================================
 #
@@ -828,32 +886,22 @@ def test_run_validation_returns_inf_stub():
 
 
 # ==============================================================================
-# NOT TESTED — Requires external environment / Person B's interface
+# NOT TESTED — Requires external environment
 # ==============================================================================
 #
 # main()
 #   Cannot be unit-tested here. It depends on:
-#     - AnyUp3D model (anyup/modules/anyup3d.py) — not available without full codebase
-#     - combined_loss_3d (anyup/modules/losses3d.py) — idem
+#     - AnyUp3D model (anyup/modules/anyup3d.py) — not yet created
+#     - combined_loss_3d (anyup/modules/losses3d.py) — not yet created
 #     - load_2d_weights_into_3d (scripts/load_2d_weights.py) — idem
 #     - Person B's get_video_dataloaders() — not available yet
 #     - A real VideoMAE checkpoint (requires HuggingFace download)
-#   → SUGGESTION: add a smoke-test in tests/test_smoke.py that calls
-#       `python train.py --config configs/anyup3d_train.yaml --debug`
-#     as a subprocess once all deps are installed and Person B's module is ready.
-#
-# _get_loader()
-#   A closure defined inside main(). It cannot be extracted and tested independently
-#   without refactoring main(). The relevant logic (selecting between Person B's
-#   loader and the stub) is implicitly covered by test_stub_dataloader_* above.
-#   → SUGGESTION: If you want an explicit test, extract _get_loader to a module-level
-#     function in train.py so it can be imported here directly.
+#   → See tests/test_smoke_train3d.py for a subprocess smoke test
+#     (skipped until all deps are in place).
 #
 # build_gt_extractor — real VideoMAE backbone (no mock)
 #   Requires downloading MCG-NJU/videomae-base (~350 MB). Cannot run in CI.
-#   → SUGGESTION: Add a separate test file tests/test_gt_extractor_integration.py
-#     guarded by `pytest.mark.slow` that runs the real backbone on a synthetic
-#     (1, 3, 4, 224, 224) tensor and checks output shape matches (1, 768, 2, 14, 14).
+#   → See tests/test_gt_extractor_integration.py guarded by @pytest.mark.slow.
 
 
 # ==============================================================================
@@ -925,6 +973,11 @@ if __name__ == "__main__":
         test_stub_dataloader_respects_batch_size,
         test_stub_dataloader_is_infinite,
         test_stub_dataloader_video_values_in_unit_range,
+        # get_loader
+        test_get_loader_returns_iterator,
+        test_get_loader_batch_has_required_keys,
+        test_get_loader_respects_t_and_batch_size,
+        test_get_loader_is_infinite,
         # build_gt_extractor → extract
         test_gt_extractor_output_shape,
         test_gt_extractor_token_grid_arithmetic,

@@ -239,6 +239,20 @@ def _stub_dataloader(cfg, t: int, batch_size: int, device: torch.device):
         yield {"video": video, "video_crop": video_crop, "patch_size": patch_size}
 
 
+def get_loader(cfg, t: int, batch_size: int, device: torch.device):
+    """
+    Return a data iterator for the given (T, batch_size) combination.
+    Uses Person B's get_video_dataloaders() when available, otherwise falls
+    back to _stub_dataloader.
+    """
+    if _HAS_PERSON_B_DATA:
+        train_loader, _ = get_video_dataloaders(cfg, t=t, batch_size=batch_size)
+        return iter(train_loader)
+    else:
+        print("[train] WARNING: using stub DataLoader — replace with Person B's module")
+        return _stub_dataloader(cfg, t=t, batch_size=batch_size, device=device)
+
+
 # ==============================================================================
 # Temporal λ Warmup
 # ==============================================================================
@@ -351,17 +365,7 @@ def main():
     print(f"[train] Starting at T={current_t}  batch_size={current_batch_size}")
 
     # ── DataLoader ────────────────────────────────────────────────────────────
-    # Person B's interface: get_video_dataloaders(cfg, t, batch_size) → (train_loader, val_loader)
-    # Falls back to stub when Person B's module is unavailable.
-    def _get_loader(t: int, batch_size: int):
-        if _HAS_PERSON_B_DATA:
-            train_loader, _ = get_video_dataloaders(cfg, t=t, batch_size=batch_size)
-            return iter(train_loader)
-        else:
-            print("[train] WARNING: using stub DataLoader — replace with Person B's module")
-            return _stub_dataloader(cfg, t=t, batch_size=batch_size, device=device)
-
-    data_iter = _get_loader(current_t, current_batch_size)
+    data_iter = get_loader(cfg, current_t, current_batch_size, device)
 
     # ── Training loop ─────────────────────────────────────────────────────────
     model.train()
@@ -380,14 +384,14 @@ def main():
             current_t = new_t
             current_batch_size = new_bs
             # Rebuild DataLoader for the new (T, batch_size) combination
-            data_iter = _get_loader(current_t, current_batch_size)
+            data_iter = get_loader(cfg, current_t, current_batch_size, device)
             model.train()
 
         # -- Data loading -----------------------------------------------------
         try:
             batch = next(data_iter)
         except StopIteration:
-            data_iter = _get_loader(current_t, current_batch_size)
+            data_iter = get_loader(cfg, current_t, current_batch_size, device)
             batch = next(data_iter)
 
         # batch keys (Person B's contract):

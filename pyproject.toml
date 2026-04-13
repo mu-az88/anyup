@@ -51,6 +51,11 @@ natten = [
 "Repository" = "https://github.com/wimmerth/anyup"
 "Paper" = "https://arxiv.org/abs/2510.12764"
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (requires large downloads, deselect with '-m \"not slow\"')",
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["anyup*"]
