@@ -1,0 +1,67 @@
+# ================================================================
+# AnyUp3D Training Configuration
+# All compute-cost knobs are marked ↓ reduce to save memory
+# ================================================================
+
+# --- Model checkpoints ---
+model_ckpt_2d: checkpoints/anyup_2d.pth        # pretrained 2D weights (wget from AnyUp releases)
+checkpoint_dir: checkpoints/anyup3d/           # where periodic + best checkpoints are saved
+resume: null                                    # path to a 3D checkpoint to resume from (null = fresh start)
+
+# --- GT feature extractor (video encoder) ---
+encoder: videomae                              # ↓ switch to change GT backbone; affects token shape
+encoder_model: MCG-NJU/videomae-base          # HuggingFace model id for VideoMAE ViT-B
+
+# --- Optimizer ---
+lr: 2.0e-4
+weight_decay: 1.0e-4
+grad_clip_max_norm: 1.0                        # max norm for gradient clipping
+
+# --- T-Curriculum stages ---
+# Each stage defines: T (number of frames), the global step it activates at,
+# and the batch size to use. Batch size halves as T grows to hold memory flat.
+# ↓ reduce batch_size at any stage to save memory — all stages are independent
+t_schedule:
+  - t: 1
+    start_step: 0
+    batch_size: 8                              # ↓ reduce to save memory (T=1 baseline)
+  - t: 4
+    start_step: 5000
+    batch_size: 4                              # ↓ reduce to save memory — halved from T=1
+  - t: 8
+    start_step: 15000
+    batch_size: 2                              # ↓ reduce to save memory — halved from T=4
+  - t: 16
+    start_step: 30000
+    batch_size: 1                              # ↓ reduce to save memory — halved from T=8
+
+# --- Loss weights (λ values) ---
+lambda_cos_mse: 1.0                            # primary reconstruction loss
+lambda_input_consistency: 0.1                  # input-space consistency regularizer
+lambda_self_consistency: 0.1                   # self-consistency under augmentation
+lambda_temporal_consistency: 0.2              # temporal smoothness (ramped in via warmup below)
+
+# Steps over which lambda_temporal_consistency linearly ramps from 0 → its full value.
+# Keeps training stable during the T=1 warmup stage where there is no temporal signal.
+temporal_lambda_warmup_steps: 5000            # ↓ set to 0 to disable warmup
+
+# --- Data (Person B's DataLoader interface) ---
+dataset_root: data/videos/                     # root dir passed to Person B's VideoDataset
+img_size: 224                                  # ↓ reduce to save memory — also affects GT token grid
+crop_size: 448                                 # ↓ reduce to save memory — high-res crop for GT extraction
+num_workers: 4                                 # DataLoader workers
+pin_memory: true
+
+# --- Training duration ---
+max_steps: 50000
+save_every_n_steps: 500                        # periodic checkpoint interval
+val_every_n_steps: 1000                        # validation loop interval
+log_every_n_steps: 50                          # console / TensorBoard log interval
+
+# --- Debug mode ---
+# When true: only 10 steps, batch_size forced to 1, T forced to 1, verbose shape prints
+debug: false
+debug_steps: 10
+
+# --- Reproducibility ---
+seed: 42
