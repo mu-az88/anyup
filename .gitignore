@@ -45,3 +45,8 @@ multirun/
 # Logs
 *.log
 runs/
+
+# Model checkpoints
+*.pth
+*.pt
+*.ckpt
