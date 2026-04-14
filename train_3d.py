@@ -188,24 +188,64 @@ def build_gt_extractor(cfg, device: torch.device):
         t_tubelet = 2                           # VideoMAE temporal patch size (tubelet size = 2)
         patch_size = 16                         # spatial patch size for ViT-B
         embed_dim = 768                         # ViT-B hidden dim
+        model_img_size = backbone.config.image_size           # 224 for videomae-base
+        model_num_frames = backbone.config.num_frames         # 16 for videomae-base
+        model_T_tok = model_num_frames // t_tubelet           # 8
 
         def extract(video: torch.Tensor) -> torch.Tensor:
             # video: (B, C, T, H, W) ∈ [0, 1]
-            B, C, T, H, W = video.shape         # ↓ T, H, W control token sequence length
-            T_tok = T // t_tubelet              # temporal token grid — depends on t_tubelet above
-            H_tok = H // patch_size             # spatial token grid height — depends on patch_size
-            W_tok = W // patch_size             # spatial token grid width  — depends on patch_size
+            B, C, T, H, W = video.shape
 
-            # VideoMAE expects list-of-frames per sample as pixel_values input
-            # pixel_values shape: (B, T, C, H, W) — note VideoMAE-specific axis order
-            pixel_values = video.permute(0, 2, 1, 3, 4)  # → (B, T, C, H, W)
+            # ── 1. Ensure T ≥ t_tubelet (VideoMAE needs ≥ 2 frames) ──────────
+            if T < t_tubelet:
+                reps = (t_tubelet + T - 1) // T
+                video = video.repeat(1, 1, reps, 1, 1)[:, :, :t_tubelet]
+                T = t_tubelet
 
-            with torch.no_grad():
-                out = backbone(pixel_values=pixel_values)
+            T_tok = T // t_tubelet
+
+            # VideoMAE expects (B, T, C, H, W)
+            pixel_values = video.permute(0, 2, 1, 3, 4)
+
+            # ── 2. Resize spatial dims to model's native image_size ───────────
+            if H != model_img_size or W != model_img_size:
+                pixel_values = torch.nn.functional.interpolate(
+                    pixel_values.reshape(B * T, C, H, W),
+                    size=(model_img_size, model_img_size),
+                    mode="bilinear",
+                    align_corners=False,
+                ).view(B, T, C, model_img_size, model_img_size)
+
+            H_tok = model_img_size // patch_size
+            W_tok = model_img_size // patch_size
+
+            # ── 3. Interpolate position embeddings for variable T ─────────────
+            # videomae-base position_embeddings are fixed for num_frames=16
+            # (shape 1 × 1568 × 768).  Temporarily swap in an interpolated copy
+            # when the input T differs from the model's native num_frames.
+            orig_pos_data = None
+            if T_tok != model_T_tok:
+                orig_pos = backbone.embeddings.position_embeddings.data  # (1, model_T_tok*S, D)
+                S = H_tok * W_tok
+                p = orig_pos.view(1, model_T_tok, S, embed_dim).permute(0, 3, 1, 2)  # (1, D, Tt, S)
+                p_interp = torch.nn.functional.interpolate(
+                    p.float(),
+                    size=(T_tok, S),
+                    mode="bilinear",
+                    align_corners=False,
+                ).permute(0, 2, 3, 1).reshape(1, T_tok * S, embed_dim).to(orig_pos.dtype)
+                orig_pos_data = orig_pos.clone()
+                backbone.embeddings.position_embeddings.data = p_interp
+
+            try:
+                with torch.no_grad():
+                    out = backbone(pixel_values=pixel_values)
+            finally:
+                if orig_pos_data is not None:
+                    backbone.embeddings.position_embeddings.data = orig_pos_data
 
             # last_hidden_state: (B, T_tok*H_tok*W_tok, embed_dim)
             tokens = out.last_hidden_state
-            # Reshape to spatiotemporal grid: (B, D, T_tok, H_tok, W_tok)
             feats = (
                 tokens
                 .reshape(B, T_tok, H_tok, W_tok, embed_dim)
@@ -409,21 +449,43 @@ def main():
             gt_features = extract_gt(video_crop)    # (B, D, T', H', W')
 
         # -- Forward pass -----------------------------------------------------
-        pred_features = model(video, patch_size=patch_size)             # (B, D, T', H', W')
+        # AnyUp.forward(image, features, output_size) — upsample gt_features
+        # guided by the low-res video, targeting the GT token-grid resolution.
+        _, _, T_tok, H_tok, W_tok = gt_features.shape
+        pred_features = model(video, gt_features, output_size=(H_tok, W_tok))
 
         # -- Loss -------------------------------------------------------------
         lam_t = temporal_lambda(cfg, global_step)   # ramped temporal λ
 
-        loss, loss_components = combined_loss(
-            pred=pred_features,
-            gt=gt_features,
-            video=video,
-            model=model,
-            lambda_cos_mse=cfg.lambda_cos_mse,
-            lambda_input_consistency=cfg.lambda_input_consistency,
-            lambda_self_consistency=cfg.lambda_self_consistency,
-            lambda_temporal_consistency=lam_t,
+        # combined_loss expects channels-last (B, T, H, W, C) tensors and a
+        # model callable with signature model(p, V) where p is features-first.
+        # AnyUp.forward is (image, features, output_size) / channels-first, so
+        # we convert layouts and provide a thin wrapper for self_consistency_loss.
+        pred_cl = pred_features.permute(0, 2, 3, 4, 1).contiguous()   # (B,T,H',W',C)
+        gt_cl   = gt_features.permute(0, 2, 3, 4, 1).contiguous()     # (B,T,H',W',C)
+        video_cl = video.permute(0, 2, 3, 4, 1).contiguous()          # (B,T,H,W,3)
+
+        def _model_cl(p_cl, V_cl):
+            """Adapter: channels-last (p,V) → channels-first AnyUp → channels-last."""
+            p_cf  = p_cl.permute(0, 4, 1, 2, 3)
+            V_cf  = V_cl.permute(0, 4, 1, 2, 3)
+            out_h, out_w = p_cl.shape[2], p_cl.shape[3]
+            out = model(V_cf, p_cf, output_size=(out_h, out_w))
+            return out.permute(0, 2, 3, 4, 1)
+
+        loss_dict = combined_loss(
+            q_pred=pred_cl,
+            q_target=gt_cl,
+            p=gt_cl,                                  # coarse features (GT used as placeholder)
+            V=video_cl,
+            model=_model_cl,
+            lambda1=cfg.lambda_input_consistency,
+            lambda2=cfg.lambda_self_consistency,
+            lambda3_max=lam_t,
+            step=global_step,
         )
+        loss = loss_dict["total"]
+        loss_components = loss_dict
 
         # -- Backward + optimizer step ----------------------------------------
         optimizer.zero_grad(set_to_none=True)
@@ -443,19 +505,19 @@ def main():
                 f"[step {global_step:06d}] "
                 f"T={current_t}  "
                 f"loss={loss.item():.4f}  "
-                f"L_cos_mse={loss_components['cos_mse']:.4f}  "
-                f"L_inp={loss_components['input_consistency']:.4f}  "
-                f"L_self={loss_components['self_consistency']:.4f}  "
-                f"L_temp={loss_components['temporal_consistency']:.4f}  "
+                f"L_recon={loss_components['reconstruction']:.4f}  "
+                f"L_inp={loss_components['input']:.4f}  "
+                f"L_self={loss_components['self']:.4f}  "
+                f"L_temp={loss_components['temporal']:.4f}  "
                 f"λ_temp={lam_t:.3f}  "
                 f"{steps_per_sec:.1f} it/s"
             )
 
             writer.add_scalar("loss/total", loss.item(), global_step)
-            writer.add_scalar("loss/cos_mse", loss_components["cos_mse"], global_step)
-            writer.add_scalar("loss/input_consistency", loss_components["input_consistency"], global_step)
-            writer.add_scalar("loss/self_consistency", loss_components["self_consistency"], global_step)
-            writer.add_scalar("loss/temporal_consistency", loss_components["temporal_consistency"], global_step)
+            writer.add_scalar("loss/reconstruction", loss_components["reconstruction"], global_step)
+            writer.add_scalar("loss/input_consistency", loss_components["input"], global_step)
+            writer.add_scalar("loss/self_consistency", loss_components["self"], global_step)
+            writer.add_scalar("loss/temporal_consistency", loss_components["temporal"], global_step)
             writer.add_scalar("curriculum/T", current_t, global_step)
             writer.add_scalar("curriculum/batch_size", current_batch_size, global_step)
             writer.add_scalar("lambda/temporal", lam_t, global_step)

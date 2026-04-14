@@ -9,5 +9,6 @@ torch
 torchvision
 eva-decord
 transformers
+
 # Dev / testing
 pytest

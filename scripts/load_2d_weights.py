@@ -262,7 +262,7 @@ def _print_summary(status: Dict[str, str]) -> None:
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 
-def load_2d_weights(
+def load_2d_weights_into_3d(
     checkpoint_path: str,
     output_path: str,
     t_k: int = 1,
@@ -314,7 +314,7 @@ def main():
     parser.add_argument("--t_k", type=int, default=1,
                         help="Temporal kernel size for Conv3d layers (default: 1)")
     args = parser.parse_args()
-    load_2d_weights(args.checkpoint, args.output, args.t_k)
+    load_2d_weights_into_3d(args.checkpoint, args.output, args.t_k)
 
 
 if __name__ == "__main__":

@@ -39,6 +39,8 @@ def pytest_addoption(parser):
         default=None,
         help="Path to the adapted 3D checkpoint produced by load_2d_weights.py",
     )
+    parser.addoption("--manifest_dir",     default="configs/")
+    parser.addoption("--imagenet_val_dir", default=None)
 
 
 @pytest.fixture(scope="session")
@@ -65,11 +67,8 @@ def ckpt_paths(request):
     if not path_3d or not Path(path_3d).exists():
         out = str(_DEFAULT_CKPT_3D)
         print(f"\n[conftest] 3D checkpoint not found — generating {out} from {path_2d}")
-        from scripts.load_2d_weights import load_2d_weights
-        load_2d_weights(path_2d, out)
+        from scripts.load_2d_weights import load_2d_weights_into_3d
+        load_2d_weights_into_3d(path_2d, out)
         path_3d = out
 
     return path_2d, path_3d
-def pytest_addoption(parser):
-    parser.addoption("--manifest_dir",     default="configs/")
-    parser.addoption("--imagenet_val_dir", default=None)
