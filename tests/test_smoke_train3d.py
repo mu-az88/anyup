@@ -6,8 +6,8 @@ Runs `python train_3d.py --config configs/anyup3d_train.yaml --debug`
 and checks for a zero exit code.
 
 Skipped automatically when required dependencies are missing:
-  - anyup.modules.anyup3d (AnyUp3D)
-  - anyup.modules.losses3d (combined_loss_3d)
+  - anyup.model (AnyUp)
+  - anyup.data.training.losses (combined_loss)
 
 Run:
     pytest tests/test_smoke_train3d.py -v
@@ -24,7 +24,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 
 
 _MISSING_DEPS = []
-for _file in ["anyup/modules/anyup3d.py", "anyup/modules/losses3d.py"]:
+for _file in ["anyup/model.py", "anyup/data/training/losses.py"]:
     if not (_PROJECT_ROOT / _file).exists():
         _MISSING_DEPS.append(_file)
 

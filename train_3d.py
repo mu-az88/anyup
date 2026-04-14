@@ -6,8 +6,8 @@ Usage:
     python train.py --config configs/anyup3d_train.yaml --debug
 
 Depends on:
-    - anyup/modules/anyup3d.py          (AnyUp3D model)
-    - anyup/modules/losses3d.py         (combined_loss_3d, all λ-weighted components)
+    - anyup/model.py          (AnyUp3D model)
+    - anyup/data/training/losses.py         (combined_loss, all λ-weighted components)
     - scripts/load_2d_weights.py        (load_2d_weights_into_3d)
     - Person B: anyup/data/video_dataset.py + get_video_dataloaders()
 """
@@ -25,8 +25,8 @@ from torch.utils.tensorboard import SummaryWriter
 from transformers import VideoMAEModel, AutoImageProcessor
 
 # ── Project imports ────────────────────────────────────────────────────────────
-from anyup.modules.anyup3d import AnyUp3D
-from anyup.modules.losses3d import combined_loss_3d
+from anyup.model import AnyUp
+from anyup.data.training.losses import combined_loss
 from anyup.utils.seed import set_seed
 from scripts.load_2d_weights import load_2d_weights_into_3d
 
@@ -321,7 +321,7 @@ def main():
     writer = SummaryWriter(log_dir=str(log_dir))
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    model = AnyUp3D().to(device)
+    model = AnyUp().to(device)
 
     if cfg.model_ckpt_2d and Path(cfg.model_ckpt_2d).exists():
         load_2d_weights_into_3d(model, cfg.model_ckpt_2d, device=device)
@@ -414,7 +414,7 @@ def main():
         # -- Loss -------------------------------------------------------------
         lam_t = temporal_lambda(cfg, global_step)   # ramped temporal λ
 
-        loss, loss_components = combined_loss_3d(
+        loss, loss_components = combined_loss(
             pred=pred_features,
             gt=gt_features,
             video=video,
