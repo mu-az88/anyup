@@ -18,7 +18,8 @@ This guide walks you through cloning the repo, installing dependencies, configur
    - [Cell 4 — Video Encoder (Teacher)](#cell-4--video-encoder-teacher)
    - [Cell 5 — AnyUp 3D Model](#cell-5--anyup-3d-model)
    - [Cell 6 — Loss Functions](#cell-6--loss-functions)
-   - [Cell 7 — Dataset & DataLoader](#cell-7--dataset--dataloader)
+   - [Cell 7a — Dataset Setup (Copy from Drive to Local)](#cell-7a--dataset-setup-copy-from-drive-to-local)
+   - [Cell 7b — Dataset & DataLoader](#cell-7b--dataset--dataloader)
    - [Cell 8 — Optimizer](#cell-8--optimizer)
    - [Cell 9 — Checkpoint Helpers](#cell-9--checkpoint-helpers)
    - [Cell 10 — Training Loop](#cell-10--training-loop)
@@ -93,22 +94,66 @@ If you are on a Colab T4 and want to reduce memory usage, you can skip `hydra-co
 
 ## 4. Mount Google Drive (checkpoints & data)
 
-Colab's local storage is wiped between sessions. Mount Drive to persist checkpoints and load your video dataset:
+Colab's local storage is wiped between sessions. Mount Drive to persist checkpoints and load your video dataset.
+
+Drive is mounted automatically in **Cell 3** of the notebook. If you need to mount it manually in a separate cell first, run:
 
 ```python
 from google.colab import drive
 drive.mount('/content/drive')
 ```
 
-After mounting, you can point the config to Drive paths:
+After mounting, set all Drive-backed paths in the **Colab overrides block** in Cell 2:
 
 ```python
-cfg.checkpoint_dir = "/content/drive/MyDrive/anyup3d/checkpoints"
-cfg.log_dir        = "/content/drive/MyDrive/anyup3d/runs"
-cfg.dataset_root   = "/content/drive/MyDrive/datasets/videos"
+DRIVE_ROOT = "/content/drive/MyDrive/anyup3d"   # your Drive folder
+cfg.checkpoint_dir = f"{DRIVE_ROOT}/checkpoints/{cfg.experiment_name}"
+cfg.log_dir        = f"{DRIVE_ROOT}/runs/{cfg.experiment_name}"
 ```
 
-See [Cell 2](#cell-2--trainconfig-main-config-block) for where exactly to set these.
+See [Cell 2](#cell-2--trainconfig-main-config-block) for the full override block.
+
+---
+
+### Sharing checkpoints across multiple Colab accounts
+
+Free Colab sessions run for ~4–5 hours. If you need to continue training from a second
+Google account, you need both accounts to read and write the **same Drive folder**.
+The correct way to do this is with a **Drive shortcut** — not a direct share to the
+"Shared with me" section, because files in "Shared with me" do not appear under
+`/content/drive/MyDrive/` in Colab and therefore cannot be used as paths.
+
+**Steps:**
+
+1. In the **first account's Drive**, right-click the `anyup3d` folder → **Share** → add the
+   second account's email with **Editor** access.
+2. Log in to the **second account's Drive**.
+3. Go to **Shared with me**, find the `anyup3d` folder.
+4. Right-click it → **Add shortcut to Drive** → place the shortcut inside **My Drive**
+   (not in a subfolder — directly in My Drive, or in a known path like
+   `My Drive/anyup3d_shared`).
+5. The folder is now accessible in Colab at `/content/drive/MyDrive/anyup3d` (or the
+   shortcut path you chose) from the second account, as if it were a local folder.
+6. Set `DRIVE_ROOT` in Cell 2 to match that path on the second account.
+
+This way all checkpoints accumulate in one place regardless of which account is actively
+training.
+
+---
+
+### Continuing training from a second account
+
+When you switch to a second Colab account to continue a run:
+
+1. Open the **same notebook** (`train_3d.ipynb`) from the first account — do not create
+   a new notebook in the second account.  
+   To share the notebook itself: in the first account, open the `.ipynb` file in Colab,
+   click **Share** (top-right), set access to **Anyone with the link → Editor**, and copy
+   the link. Open that link in the second account.
+2. In Cell 2, update `cfg.experiment_name` to match the run you are resuming (e.g.
+   `"run_01"`), and uncomment the `cfg.resume` line pointing to the last checkpoint.
+3. Run all cells from the top. The optimizer and scheduler states are restored from the
+   checkpoint, so training continues exactly where it left off.
 
 ---
 
@@ -343,7 +388,29 @@ cfg.lambda_temporal_consistency  = 0.0  # turn off temporal smoothness
 
 ---
 
-### Cell 7 — Dataset & DataLoader
+### Cell 7a — Dataset Setup (Copy from Drive to Local)
+
+This cell copies or unzips your dataset from Drive to `/content/local_dataset` **before** training starts.
+
+**Why this matters:** Colab accesses Drive through a FUSE filesystem. Every file-open during DataLoader iteration goes through that layer, which adds latency. For video datasets with many small files this is noticeably slow. Copying to `/content/` (backed by the instance's local SSD) is 3–5x faster.
+
+**What to configure:**
+
+```python
+DRIVE_DATASET_SOURCE = "/content/drive/MyDrive/anyup3d/datasets/videos.zip"  # zip OR folder
+LOCAL_DATASET_PATH   = "/content/local_dataset"
+```
+
+- If `DRIVE_DATASET_SOURCE` is a `.zip` file, the cell unzips it into `LOCAL_DATASET_PATH`.
+- If it is a folder, the cell copies it with `shutil.copytree`.
+- If the local path already exists, the cell skips the copy (safe to re-run after reconnect).
+- After copying, `cfg.dataset_root` is automatically updated to point to the local path.
+
+**Space:** `/content/` has ~100 GB of local disk on a standard Colab instance. If your dataset is larger, keep it on Drive and skip this cell — just make sure `cfg.dataset_root` points directly to the Drive path.
+
+---
+
+### Cell 7b — Dataset & DataLoader
 
 **This is the cell you are most likely to need to edit.**
 
