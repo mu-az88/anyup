@@ -67,8 +67,12 @@ if "omegaconf" not in sys.modules:
 sys.modules["anyup.modules.anyup3d"].AnyUp3D = nn.Linear
 sys.modules["anyup.modules.losses3d"].combined_loss_3d = None
 sys.modules["scripts.load_2d_weights"].load_2d_weights_into_3d = None
-sys.modules["transformers"].VideoMAEModel = MagicMock()
-sys.modules["transformers"].AutoImageProcessor = MagicMock()
+# Only stub VideoMAEModel when transformers is itself a stub (no __file__).
+# If the real package is installed, leave it alone so that
+# test_gt_extractor_integration.py can use the real model.
+if getattr(sys.modules["transformers"], "__file__", None) is None:
+    sys.modules["transformers"].VideoMAEModel = MagicMock()
+    sys.modules["transformers"].AutoImageProcessor = MagicMock()
 if "torch.utils.tensorboard" not in sys.modules:
     sys.modules["torch.utils.tensorboard"] = types.ModuleType("torch.utils.tensorboard")
 sys.modules["torch.utils.tensorboard"].SummaryWriter = MagicMock()
@@ -750,6 +754,10 @@ def _make_mock_backbone(B, T, H, W):
     mock_model.parameters = lambda: iter([])   # for .eval() compatibility
     mock_model.eval = lambda: mock_model
     mock_model.to = lambda *a, **kw: mock_model
+    # Set config values to real ints so build_gt_extractor's spatial-resize and
+    # position-embedding-interpolation guards don't fire on a mock.
+    mock_model.config.image_size = H
+    mock_model.config.num_frames = T
     return mock_model, T_tok, H_tok, W_tok, embed_dim
 
 
