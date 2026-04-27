@@ -122,9 +122,35 @@ def load_checkpoint(
     """
     Load checkpoint into model (and optionally optimizer).
     Returns (step, t_stage) so the training loop can resume correctly.
+
+    Handles Conv3d temporal-kernel mismatches (e.g. checkpoint saved with
+    t_k=1 but model built with t_k=3) via center-init expansion.
     """
     state = torch.load(path, map_location=device)
-    model.load_state_dict(state["model_state_dict"])
+    ckpt_sd = state["model_state_dict"]
+    model_sd = model.state_dict()
+
+    adapted_sd = {}
+    for key, dst in model_sd.items():
+        src = ckpt_sd.get(key)
+        if src is None:
+            adapted_sd[key] = dst.clone()
+        elif src.shape == dst.shape:
+            adapted_sd[key] = src
+        elif src.dim() == 5 and dst.dim() == 5 and src.shape[2] != dst.shape[2]:
+            # Conv3d temporal kernel size changed — center-init expand
+            expanded = torch.zeros_like(dst)
+            src_center = src.shape[2] // 2
+            dst_center = dst.shape[2] // 2
+            expanded[:, :, dst_center, :, :] = src[:, :, src_center, :, :]
+            adapted_sd[key] = expanded
+            print(f"[load_checkpoint] expanded {key}: t_k {src.shape[2]} → {dst.shape[2]}")
+        else:
+            adapted_sd[key] = dst.clone()
+            print(f"[load_checkpoint] WARNING: shape mismatch for {key}: "
+                  f"{tuple(src.shape)} → {tuple(dst.shape)}, keeping model init")
+
+    model.load_state_dict(adapted_sd, strict=True)
     if optimizer is not None and "optimizer_state_dict" in state:
         optimizer.load_state_dict(state["optimizer_state_dict"])
     step = state.get("step", 0)
