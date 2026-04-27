@@ -38,7 +38,7 @@ Usage
     python scripts/load_2d_weights.py \
         --checkpoint anyup_multi_backbone.pth \
         --output     anyup3d_init.pth \
-        [--t_k 1]
+        [--t_k 3]
 """
 
 import argparse
@@ -264,8 +264,8 @@ def _print_summary(status: Dict[str, str]) -> None:
 
 def load_2d_weights_into_3d(
     checkpoint_path: str,
-    output_path: str,
-    t_k: int = 1,
+    output_path: str = None,
+    t_k: int = 3,
     model_kwargs: dict = None,
 ) -> nn.Module:
     from anyup.model import AnyUp
@@ -297,10 +297,11 @@ def load_2d_weights_into_3d(
 
     _print_summary(status)
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), output_path)
-    print(f"Saved adapted 3D checkpoint to: {output_path}")
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(model.state_dict(), output_path)
+        print(f"Saved adapted 3D checkpoint to: {output_path}")
 
     return model
 
@@ -311,8 +312,8 @@ def main():
                         help="Path to 2D AnyUp .pth file")
     parser.add_argument("--output", required=True,
                         help="Where to write the adapted 3D checkpoint")
-    parser.add_argument("--t_k", type=int, default=1,
-                        help="Temporal kernel size for Conv3d layers (default: 1)")
+    parser.add_argument("--t_k", type=int, default=3,
+                        help="Temporal kernel size for Conv3d layers (default: 3)")
     args = parser.parse_args()
     load_2d_weights_into_3d(args.checkpoint, args.output, args.t_k)
 

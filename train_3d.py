@@ -361,12 +361,11 @@ def main():
     writer = SummaryWriter(log_dir=str(log_dir))
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    model = AnyUp().to(device)
-
     if cfg.model_ckpt_2d and Path(cfg.model_ckpt_2d).exists():
-        load_2d_weights_into_3d(model, cfg.model_ckpt_2d, device=device)
+        model = load_2d_weights_into_3d(cfg.model_ckpt_2d).to(device)
         print(f"[train] Loaded 2D weights from {cfg.model_ckpt_2d}")
     else:
+        model = AnyUp().to(device)
         print(f"[train] WARNING: 2D checkpoint not found at {cfg.model_ckpt_2d!r} — training from scratch")
 
     # ── Optimizer ─────────────────────────────────────────────────────────────
