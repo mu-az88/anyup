@@ -1,0 +1,598 @@
+% chktex-file 13 24
+\chapter{METHODOLOGY}
+
+\section{Chapter Overview}
+This chapter presents the engineering methodology followed to design, implement, and
+evaluate the proposed AnyUp3D framework. AnyUp addresses the low-resolution
+feature map limitation of Vision Foundation Models (VFMs) such as DINOv2~\cite{dinov2} and CLIP~\cite{radford2021clip}
+by enabling continuous, backbone-agnostic spatial upsampling. However, when applied
+to video, AnyUp processes each frame independently, ignoring inter-frame correlations
+and producing flickering artifacts and unstable object boundaries. AnyUp3D extends
+AnyUp into the temporal domain by integrating two novel modules into its upsampling
+pipeline: \textbf{3D convolutions} inside the encoder to capture spatiotemporal patterns across
+adjacent frames, and \textbf{3D cross-attention with temporal masking} to correct frame-level
+inconsistencies by attending to neighboring frames within a spatiotemporal window. These additions introduce temporal
+consistency while preserving the backbone-agnostic universality that defines the
+original AnyUp design.
+
+The chapter is organized into the following stages:
+\begin{enumerate}
+    \item \textbf{Requirements and Specifications}, defining the functional and
+    performance criteria the system must meet;
+    \item \textbf{Possible Scenarios}, justifying the chosen architectural approach
+    over alternatives;
+    \item \textbf{System Framework}, presenting the overall three-stage pipeline and
+    data flow, highlighting the novel temporal contributions;
+    \item \textbf{Dataset Description}, documenting the UCF-101 training dataset
+    and the DAVIS-2017 evaluation benchmark;
+    \item \textbf{Implementation Details}, explaining how the model was constructed
+    and integrated; and
+    \item \textbf{Evaluation Plan}, defining the loss-based proxy metrics and
+    held-out validation strategy used to monitor and validate the system's performance.
+\end{enumerate}
+
+Each stage is presented with a clear justification of the engineering decisions made
+to ensure temporal consistency while preserving the universality and
+backbone-agnostic nature of the original AnyUp design.
+
+\section{Requirements and Specifications}
+Based on the problem analysis presented in Chapter One, the following requirements were identified for the proposed AnyUp3D system.
+
+\subsection{Functional Requirements}
+\begin{itemize}
+    \item The system must accept a sequence of consecutive video frames alongside their 
+    corresponding low-resolution feature maps as input, and produce temporally consistent, 
+    high-resolution feature maps as output.
+    \item The system must support arbitrary upsampling scales, preserving the resolution-agnostic behavior of the original AnyUp model.
+    \item The system must demonstrably reduce temporal inconsistency artifacts (flickering, jittering object boundaries) compared to the frame-by-frame AnyUp baseline, as measured by the Temporal Consistency (TC) metric and Flow Warping Error on the DAVIS-2017 benchmark.
+    \item The system must maintain competitive spatial accuracy, measured by the J\&F score on DAVIS-2017, relative to the original AnyUp baseline.
+
+\end{itemize}
+
+\subsection{Non-Functional Requirements}
+\begin{itemize}
+    \item \textbf{Backbone Agnosticism:} The temporal modules must integrate into the AnyUp pipeline without making any assumptions about the feature extractor used.
+    \item \textbf{Scalability:} The model must be trainable on available academic GPU hardware, with the sequence length $T$ and batch size serving as adjustable parameters to accommodate memory constraints.
+    \item \textbf{Scope Constraints:} Real-time processing is explicitly out of scope for this project; the primary focus is on accuracy and temporal stability rather than inference speed.
+\end{itemize}
+
+\section{Possible Scenarios}
+
+This section documents three concrete design decisions encountered during the 
+development of AnyUp3D, the alternatives considered for each, and the 
+justification for the choice made.
+
+%-----------------------------------------------------------
+\subsection{Training: How to Sample Frames from a Video Clip}
+
+When constructing a training clip of $T$ frames from a raw video, two sampling 
+strategies were considered:
+
+\begin{itemize}
+    \item \textbf{Option A --- Dense sampling (every $k$ frames):} Select $T$ 
+    consecutive frames with a fixed stride $k$ regardless of the video's frame 
+    rate.
+    \item \textbf{Option B --- Time-based sampling (one frame per $t$ seconds):} 
+    Select frames at fixed temporal intervals measured in wall-clock time, so 
+    that the sampled clip covers the same real-world duration regardless of the 
+    video's frame rate.
+\end{itemize}
+
+\paragraph{Decision: Option B was adopted, with $t = 0.5$ seconds (2 frames per second).}
+A video with many frames carries a large amount of temporal redundancy; adjacent 
+frames in a high frame-rate clip differ only minimally. If the model were trained 
+on densely sampled clips, the temporal consistency objective would be trivially 
+satisfied by near-identical consecutive frames and would not generalise to 
+realistic temporal gaps. Conversely, sampling with a fixed frame stride on a 
+low-frame-rate video would skip a disproportionately large fraction of the visual 
+content, distorting the motion dynamics of the clip. By anchoring the sampling interval to $t = 0.5$ seconds (2 frames per second) of wall-clock time, the sampled clips maintain a 
+consistent real-world tempo across videos of different frame rates, giving the 
+temporal consistency modules a meaningful and uniform learning signal throughout 
+training.
+
+%-----------------------------------------------------------
+\subsection{Architecture: How to Extend the Windowed Attention to the Temporal 
+Domain}
+
+The spatial upsampling core of AnyUp relies on windowed cross-attention, in which 
+each high-resolution query token attends only to key tokens within a local spatial 
+window in the low-resolution feature map. Extending this mechanism to video 
+required a decision on how to incorporate the temporal dimension into the attention 
+receptive field. Three options were considered:
+
+\begin{itemize}
+    \item \textbf{Option 1 --- 3D attention window:} Extend the existing spatial 
+    window with an additional temporal axis, so each query token attends to 
+    spatially nearby key tokens within a fixed number of neighboring frames.
+    \item \textbf{Option 2 --- 2D spatial window with global temporal attention:} 
+    Keep the spatial window unchanged but allow each query to attend to all 
+    frames simultaneously, removing any temporal locality constraint.
+    \item \textbf{Option 3 --- Separate spatial and temporal attention modules:} 
+    Retain the original 2D windowed attention for spatial upsampling and add a 
+    dedicated second attention module that operates purely along the temporal 
+    axis.
+\end{itemize}
+
+\paragraph{Decision: Option 1 was adopted.}
+Option 2 introduces quadratic scaling in the temporal dimension: removing the 
+temporal locality constraint multiplies the size of the attention matrix by $T$, 
+making it prohibitively memory-expensive at moderate resolutions and frame counts. 
+Option 3 avoids this cost but introduces architectural redundancy: two separate 
+attention mechanisms must be trained and maintained, their combined parameters 
+increase the model's footprint, and the interaction between spatial and temporal 
+signals is factorised rather than jointly modelled. The 3D window approach of 
+Option 1 addresses both concerns simultaneously. Temporal locality bounds the 
+attention matrix to a fixed size regardless of clip length, and joint 
+spatiotemporal attention allows the model to reason about spatial detail and 
+temporal context within a single unified operation. It is also the most 
+conservative extension of the existing windowed attention: only the mask 
+computation changes, while the attention layer itself remains unchanged.
+
+%-----------------------------------------------------------
+\subsection{Architecture: Temporal Window Parameterization --- Ratio or Frame 
+Count?}
+
+Having decided to use a 3D attention window, a secondary decision arose regarding 
+how to parameterize the size of the temporal window. Two representations were 
+considered:
+
+\begin{itemize}
+    \item \textbf{Option A --- Temporal ratio:} Express the temporal window as a 
+    fraction of the total clip length $T$, so the number of attended neighboring 
+    frames scales proportionally as $T$ changes.
+    \item \textbf{Option B --- Absolute frame count:} Express the temporal window 
+    as a fixed number of neighboring frames $w_t$, independent of the total clip 
+    length.
+\end{itemize}
+
+\paragraph{Decision: Option B was adopted, with $w_t = 4$.}
+A ratio-based window scales with $T$: a window of $0.5$ covers 4 frames for a 
+clip of $T = 8$ but 8 frames for a clip of $T = 16$. This causes the model's 
+effective temporal receptive field to change as $T$ grows through the curriculum, 
+making the behaviour of the temporal attention inconsistent across training stages. 
+More critically, for long videos with many frames, a fixed ratio forces each query 
+to attend to a large and growing number of temporally distant frames, inflating 
+both the attention matrix and the gradient signal with content that is not 
+temporally relevant to the current frame. An absolute frame count $w_t = 4$ keeps 
+the temporal receptive field constant regardless of clip length, ensuring that the 
+model learns a consistent and transferable notion of neighboring context --- from 
+the short clips used in early curriculum stages, to longer clips used later, and 
+to arbitrarily long videos at inference time.
+
+\section{System Framework}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 0.8cm,
+    font=\sffamily\small,
+    box/.style={
+        rectangle, rounded corners=6pt, draw, line width=0.6pt,
+        text width=4.2cm, minimum height=1.3cm, align=center
+    },
+    blueBox/.style={box, fill=blue50, draw=blue600},
+    purpleBox/.style={box, fill=purple50, draw=purple600},
+    tealBox/.style={box, fill=teal50, draw=teal600},
+    coralBox/.style={box, fill=coral50, draw=coral600, text width=13.5cm, minimum height=2.4cm},
+    greenBox/.style={box, fill=green50, draw=green600, text width=7cm},
+    subBox/.style={box, minimum height=0.7cm, text width=2.2cm},
+    arrow/.style={-{Stealth[scale=1.2]}, thick, draw=gray600},
+    label/.style={font=\sffamily\scriptsize, text=gray600}
+]
+
+    \definecolor{blue50}{HTML}{E6F1FB}
+    \definecolor{blue600}{HTML}{185FA5}
+    \definecolor{purple50}{HTML}{EEEDFE}
+    \definecolor{purple600}{HTML}{534AB7}
+    \definecolor{teal50}{HTML}{E1F5EE}
+    \definecolor{teal600}{HTML}{0F6E56}
+    \definecolor{coral50}{HTML}{FAECE7}
+    \definecolor{coral600}{HTML}{993C1D}
+    \definecolor{green50}{HTML}{EAF3DE}
+    \definecolor{green600}{HTML}{3B6D11}
+    \definecolor{gray600}{HTML}{5F5E5A}
+
+    \node[label] (imgLabel) at (0, 1.0) {Image guidance path};
+    \node[label] (featLabel) at (8, 1.0) {LR feature path};
+    \draw[dashed, color=gray!30] (4, 0.5) -- (4, -11.5);
+
+    \node[blueBox] (hr_input) at (0,0) {
+        \textbf{HR RGB video $I$} \\
+        \scriptsize (B, 3, T, H, W)
+    };
+
+    \node[purpleBox] (lr_input) at (8,0) {
+        \textbf{LR feature map $p$} \\
+        \scriptsize (B, C, T, h, w) $\cdot$ any encoder
+    };
+
+    \node[blueBox, below=1.5cm of hr_input] (img_enc) {
+        \textbf{Image encoder + RoPE 3D} \\
+        \scriptsize ResBlock3D $\cdot$ 3D pos. encoding
+    };
+
+    \node[purpleBox, below=1.5cm of lr_input] (lfu3d) {
+        \textbf{Feature unification (LFU3D)} \\
+        \scriptsize Gaussian derivative basis \\
+        \scriptsize any $C_{in} \to qk\_dim$
+    };
+
+    \node[tealBox, below left=1.2cm and -1.8cm of img_enc, text width=3.2cm] (q_enc) {
+        \textbf{Query encoder} \\
+        \scriptsize ResBlock3D + pool $\to Q$
+    };
+
+    \node[blueBox, below right=1.8cm and -1.5cm of img_enc, text width=2.8cm] (k_img_enc) {
+        \textbf{Key encoder} \\
+        \scriptsize ResBlock3D + pool
+    };
+
+    \node[purpleBox, below=1.8cm of lfu3d, text width=3.8cm] (k_feat_enc) {
+        \textbf{Key feature encoder} \\
+        \scriptsize ResBlock3D $\times$ 2 $\to K_{feat}$
+    };
+
+    \node[tealBox, below=5.8cm of img_enc, xshift=4cm, text width=6cm] (k_agg) {
+        \textbf{Key aggregation} \\
+        \scriptsize $K_{img} \oplus K_{feat} \cdot$ conv $1\times1 \to K$
+    };
+
+    \node[coralBox, below=2.2cm of k_agg] (attn_block) {};
+    \node[anchor=north, font=\sffamily\bfseries, yshift=-0.2cm] at (attn_block.north) {CrossAttentionBlock3D};
+    \node[anchor=north, font=\sffamily\scriptsize, yshift=-0.6cm] at (attn_block.north) {windowed spatiotemporal attention $\cdot$ frame window mask};
+
+    \node[tealBox, subBox, below=1.1cm of attn_block.north, xshift=-4.2cm] (q_node) {\textbf{Q}};
+    \node[tealBox, subBox, below=1.1cm of attn_block.north, xshift=0cm] (k_node) {\textbf{K}};
+    \node[purpleBox, subBox, below=1.1cm of attn_block.north, xshift=4.2cm] (v_node) {\textbf{V} = p};
+
+    \node[greenBox, below=1.2cm of attn_block] (output) {
+        \textbf{HR feature map $q$} \\
+        \scriptsize (B, C, T, H, W) $\cdot$ upsampled
+    };
+
+    \draw[arrow] (hr_input.south) -- (img_enc.north);
+    \draw[arrow] (lr_input.south) -- (lfu3d.north);
+
+    \draw[arrow] ($(img_enc.south)+(-1,0)$) -- (q_enc.north);
+    \draw[arrow] (q_enc.south) -- (q_node.north);
+
+    \draw[arrow] ($(img_enc.south)+(1,0)$) -- ($(img_enc.south)+(1,-0.5)$) -| (k_img_enc.north);
+    \draw[arrow] (k_img_enc.south) -- (k_img_enc.south |- k_agg.north) node[midway, right, label] {$K_{img}$};
+
+    \draw[arrow] (lfu3d.south) -- (k_feat_enc.north);
+    \draw[arrow] (k_feat_enc.south) |- (k_agg.east) node[pos=0.6, above, label] {$K_{feat}$};
+
+    \draw[arrow] (k_agg.south) -- (k_node.north) node[midway, right, label] {$K$};
+
+    \draw[arrow, dashed] (lr_input.east) -- ++(1.8,0) |- (v_node.east) node[pos=0.2, right, label, align=left] {$V=p$\\ (direct)};
+
+    \draw[arrow] (attn_block.south) -- (output.north);
+
+\end{tikzpicture}%
+}
+\caption{System framework of the proposed AnyUp3D pipeline, showing the image-guidance path, low-resolution feature path, key aggregation, and the final cross-attention-based upsampling block.}
+\label{fig:anyup3d_framework}
+\end{figure}
+
+\subsection{Stage 1: Input Volume Construction}
+
+The AnyUp3D architecture is designed to perform spatiotemporal feature upsampling by processing two distinct input streams: a high-resolution guidance signal and a low-resolution latent feature map. The primary input consists of a \textbf{high-resolution (HR) RGB video} $I \in \mathbb{R}^{B \times 3 \times T \times H \times W}$. This video provides the fine-grained structural and temporal context necessary for high-fidelity upsampling and is processed through a 3D image encoder followed by a \textbf{3D Rotary Positional Encoding (RoPE3D)} module. The RoPE3D operation injects relative spatiotemporal positioning into the flattened video tokens by applying a rotation-based transformation to the query and key representations, ensuring the model remains sensitive to the relative distances between pixels and frames across the temporal dimension.
+
+The second input is a \textbf{low-resolution (LR) feature map} $p \in \mathbb{R}^{B \times C \times T \times h \times w}$. Rather than utilizing static image encoders, this volume is extracted from a frozen, pre-trained \textbf{video processing backbone} such as \textbf{VideoMAE} or \textbf{Video Swin Transformer}. These backbones are uniquely suited to produce feature maps that encapsulate deep semantic information across both spatial and temporal dimensions. Within the AnyUp3D pipeline, these features are passed through a \textbf{Feature Unification (LFU3D)} module, which employs a learned Gaussian derivative basis to map arbitrary input channel dimensions to a unified internal representation ($qk\_dim$). While the HR video generates the Queries ($Q$) and a portion of the Keys ($K_{img}$), the LR feature map serves both as a source for the key-feature encoding ($K_{feat}$) and directly as the Value ($V$) component for the subsequent cross-attention mechanism. All backbone weights are kept frozen throughout training to preserve the backbone-agnostic property of the system.
+
+\subsection{Stage 2: Spatiotemporal Feature Encoding}
+
+Once the input volumes are constructed, the system processes the image guidance and the low-resolution latent features through specialized encoding paths to prepare the Query ($Q$), Key ($K$), and Value ($V$) tensors for cross-attention.
+
+\subsubsection{Guidance Path and 3D Rotary Positional Encoding}
+The high-resolution guidance video $I$ is first processed by a series of 3D Residual Blocks (\textit{ResBlock3D}), which utilize 3D convolutions to extract local spatiotemporal features. To ensure the model is aware of the global spatiotemporal structure, we apply \textbf{3D Rotary Positional Encoding (RoPE3D)}. Unlike standard additive positional embeddings, RoPE3D operates by applying a rotation transformation to the feature tokens based on their 3D coordinates $(t, h, w)$. 
+
+Specifically, for a feature vector $x$ at a given coordinate, the transformation is defined as:
+\begin{equation}
+    \text{RoPE3D}(x, \text{coords}) = x \cos(\Theta) + \text{rotate\_half}(x) \sin(\Theta)
+\end{equation}
+where $\Theta$ is the product of the coordinates and a learned frequency matrix. This approach preserves relative distances between tokens across both space and time, allowing the subsequent attention mechanism to leverage precise geometric and temporal relationships.
+
+\subsubsection{Latent Path and Learned Feature Unification (LFU3D)}
+To maintain a backbone-agnostic architecture, the system must handle latent features $p$ from various video encoders with differing channel dimensions. This is achieved through the \textbf{Learned Feature Unification (LFU3D)} module. The LFU3D module employs a depthwise 3D convolution using a learned basis $\mathcal{B} \in \mathbb{R}^{C_{out} \times 1 \times t_k \times k \times k}$, which can be initialized with Gaussian derivatives to capture multi-scale spatiotemporal gradients. 
+
+The module computes an attention-weighted average across the input channels:
+\begin{equation}
+    \text{LFU3D}(p) = \text{mean}_{C} \left( \text{Softmax}(\text{Conv3D}_{depth}(p, \mathcal{B})) \right)
+\end{equation}
+This operation ensures that the output is invariant to the input channel dimensionality of the backbone, effectively mapping arbitrary features into a unified $qk\_dim$ space. The unified features are then passed through a key feature encoder to form $K_{feat}$, which is subsequently fused with the image-based keys $K_{img}$ through a concatenation and $1 \times 1$ convolution to produce the final Key tensor $K$.
+\subsection{Stage 3: Spatiotemporal Cross-Attention and Upsampling}
+
+The final stage of the AnyUp3D pipeline performs the localized fusion of high-resolution structural cues and low-resolution semantic features. This is achieved through a windowed spatiotemporal cross-attention mechanism that ensures both spatial detail and temporal consistency in the upsampled output.
+
+\subsubsection{Query, Key, and Value Preparation}
+Before entering the attention mechanism, the encoded representations are projected into a unified embedding space:
+\begin{itemize}
+    \item \textbf{Queries ($Q$):} The guidance features are passed through the \textit{query\_encoder} and upsampled to the target high-resolution $(H, W)$ using adaptive 3D average pooling. To smooth the upsampled guidance signal and prevent grid artifacts, a $1 \times 3 \times 3$ spatial convolution is applied within the attention block.
+    \item \textbf{Keys ($K$):} The model constructs a composite Key by concatenating image-based keys ($K_{img}$) with encoded feature keys derived from the normalized latent volume. These are fused via a \textit{Key Aggregation} layer using a $3 \times 3 \times 3$ convolution, ensuring the Key tensor contains both semantic and structural context.
+    \item \textbf{Values ($V$):} Following a direct bypass design, the original low-resolution feature map $p$ is used as the Value tensor. This preserves the integrity of the backbone's latent representations without additional transformation.
+\end{itemize}
+
+\subsubsection{Windowed Spatiotemporal Attention Masking}
+To manage the quadratic computational complexity of 3D attention, AnyUp3D employs a constrained attention mask. The receptive field of each high-resolution query token is restricted to a 3D local window within the key-value space.
+
+The mask $\mathcal{M}$ is defined by two constraints:
+\begin{enumerate}
+    \item \textbf{Spatial Constraint:} A spatial window ratio $\alpha$ defines a radius around the projected coordinates of the query. A query at $(h_q, w_q)$ can only attend to keys within the spatial bounds defined by $\pm \alpha$.
+    \item \textbf{Temporal Constraint:} The temporal window $w_t$ restricts attention to neighboring frames. A query at frame $t_q$ only attends to keys at frames $t_k$ where $|t_q - t_k| \leq w_t$.
+\end{enumerate}
+The resulting boolean mask $\mathcal{M} \in \{0, 1\}^{T H W \times T h w}$ is applied to the attention scores, forcing the model to aggregate features from a logically relevant spatiotemporal neighborhood.
+
+\subsubsection{Feature Fusion and Final Output}
+The cross-attention operation uses the prepared $Q, K, V$ and the 3D mask to compute the upsampled feature map $q \in \mathbb{R}^{B \times C \times T \times H \times W}$. By normalizing the queries and keys using \textit{RMSNorm} and employing multi-head attention, the model effectively ``paints'' the deep semantic values onto the high-resolution guidance grid. 
+
+Notably, the implementation ensures that if $T=1$ and $w_t=0$, the 3D temporal logic collapses, making the system mathematically equivalent to the 2D AnyUp baseline. This maintains backward compatibility with image-based backbones while enabling state-of-the-art spatiotemporal upsampling for video-based encoders.
+
+\section{Dataset Description}
+This section describes the datasets utilized to develop and evaluate the performance of the proposed AnyUp3D system. To ensure the model achieves both spatiotemporal robustness and high-fidelity reconstruction, a dual-dataset strategy was adopted: the \textbf{UCF-101} dataset was used for large-scale training, while the \textbf{DAVIS-2017} benchmark served as the primary evaluation set for validating precision and consistency.
+
+\subsection*{Training Dataset: UCF-101 (Action Recognition Data)}
+\begin{itemize}
+    \item \textbf{Data Type:} RGB video clips sourced from YouTube, categorized into 101 distinct action classes.
+    \item \textbf{Source:} Soomro et al.~\cite{soomro2012ucf101} (2012). It is a widely cited benchmark in the video understanding and computer vision communities.
+    \item \textbf{Data Description:} The dataset comprises 13,320 video sequences featuring 101 action categories, such as sports, human-object interaction, and body motions. These clips are characterized by unconstrained environments, varying camera motion, background clutter, and diverse lighting conditions. For this work, training is conducted on a subset restricted to the ten most frequent action classes (approximately 1,170 training and 460 test clips), chosen for manageable size and diversity of motion types.
+    \item \textbf{Relevance to This Work:} UCF-101 is selected for the training phase because its immense diversity in motion patterns and real-world ``noisy'' footage forces the feature upsampler to learn generalized representations. By training on a wide array of temporal dynamics, the AnyUp3D system becomes robust to unpredictable object movements and camera shakes, which is essential for general-purpose feature upsampling.
+\end{itemize}
+
+\subsection*{Evaluation Dataset: DAVIS-2017 (Densely Annotated Video Segmentation)}
+\begin{itemize}
+    \item \textbf{Data Type:} High-resolution (1080p) RGB video sequences with dense, per-frame, per-object segmentation masks for multiple objects per scene.
+    \item \textbf{Source:} Pont-Tuset et al.\ (2017), available at the official DAVIS benchmark website (\url{https://davischallenge.org}). 
+    \item \textbf{Data Description:} The dataset contains 150 sequences divided into training, validation, and test-dev splits. Each sequence captures a distinct real-world scene featuring complex challenges, including fast motion, motion blur, occlusion, and scale variation. This work utilizes the validation split (30 sequences, $\sim$2,023 frames) for evaluation.
+    \item \textbf{Relevance to This Work:} While UCF-101 provides the breadth required for training, DAVIS-2017 provides the precision required for rigorous evaluation. Its dense per-frame annotations allow for the precise measurement of:
+    \begin{enumerate}
+        \item \textbf{Spatial Fidelity:} Evaluated through region similarity ($\mathcal{J}$ score) and contour accuracy ($\mathcal{F}$ score).
+        \item \textbf{Temporal Consistency:} Validating the stability of upsampled features across consecutive frames to ensure the absence of flickering or artifacts.
+        \item \textbf{Fair Comparison:} As the standard benchmark for related architectures like Cutie and Video Swin Transformer, it enables a direct and transparent performance comparison.
+    \end{enumerate}
+\end{itemize}
+
+\section{Implementation Details}
+
+The proposed system is implemented entirely in Python, using PyTorch as the deep learning framework. The model is designed to operate on five-dimensional tensors of shape $(B, C, T, H, W)$, representing a batch of $B$ video clips each containing $T$ frames of spatial resolution $H \times W$ with $C$ channels. The overall architecture, referred to as AnyUp3D, extends the pretrained 2D AnyUp model \cite{anyup} into the spatiotemporal domain by introducing a temporal axis across all major computational components, including convolutional layers, positional encodings, and the cross-attention mechanism. A frozen VideoMAE encoder \cite{videomae}, based on a Vision Transformer (ViT-B) pretrained on video data, serves as the teacher model, providing dense spatiotemporal feature targets of shape $(B, 768, T', H', W')$ that supervise the training of AnyUp3D. All experiments are conducted on an NVIDIA T4 GPU in a Google Colab environment, with model checkpoints persisted to Google Drive.
+
+The implementation is organized into a set of independent modules, each responsible for a specific component of the architecture. The following subsections describe these modules in order, beginning with the spatiotemporal positional encoding mechanism.
+
+%-----------------------------------------------------------
+\subsection{Positional Encoding}
+
+Positional information is a critical component in attention-based architectures, as the self- and cross-attention operations are inherently permutation-invariant and carry no built-in notion of spatial or temporal location. The original AnyUp model employs a two-dimensional Rotary Position Embedding (RoPE) \cite{su2024rope} to encode the $(x, y)$ spatial coordinates of each token before they enter the cross-attention module. RoPE encodes position by rotating query and key vectors in the embedding space by an angle that is a function of both the token position and the frequency assigned to each embedding dimension, which allows the dot-product attention scores to depend on the \emph{relative} positions of token pairs rather than their absolute coordinates. To support video inputs, this encoding is extended to three axes: temporal ($z$), horizontal spatial ($x$), and vertical spatial ($y$), implemented across two components: \texttt{create\_coordinates\_3d} and \texttt{RoPE3D}.
+
+\paragraph{Coordinate Generation.}
+Before positional encoding can be applied, each spatiotemporal token must be assigned a continuous coordinate triple $(z, x, y)$ representing its normalized position along the temporal and spatial axes. The function \texttt{create\_coordinates\_3d} generates these coordinates by constructing three independent linearly spaced grids over the range $[0, 1]$ along the $T$, $H$, and $W$ dimensions respectively. A three-dimensional meshgrid is formed from these grids and stacked along the last dimension, producing a coordinate tensor of shape $(1,\, T \cdot H \cdot W,\, 3)$ where each row contains the $(z, x, y)$ coordinates of the corresponding spatiotemporal token. Normalizing coordinates to a fixed range ensures that the positional encoding is resolution-independent and behaves consistently when the model is applied to videos of different spatial or temporal sizes.
+
+\paragraph{Rotary Position Embedding.}
+The \texttt{RoPE3D} module consumes the coordinate tensor produced by \texttt{create\_coordinates\_3d} and applies rotary positional encoding to the token embeddings. It maintains a learnable frequency matrix $\mathbf{F} \in \mathbb{R}^{3 \times d}$, where $d$ is the query/key projection dimension. Each row of $\mathbf{F}$ stores the frequency sequence assigned to one axis, initialized by partitioning the $d$ embedding dimensions into three contiguous non-overlapping blocks and populating each block with a canonical sinusoidal frequency sequence of the form $\theta^{\,\text{linspace}(0,\,-1,\,\lfloor \text{block}/2 \rfloor)}$ scaled by $2\pi$, where $\theta = 100$ is the base period. This ensures that each axis operates over a dedicated portion of the embedding space, preventing interference between temporal and spatial position signals at the start of training.
+
+The forward pass computes rotation angles via a single matrix multiplication between the coordinate tensor and the frequency matrix:
+
+\begin{equation}
+    \boldsymbol{\Theta} = \mathbf{C} \cdot \mathbf{F} \in \mathbb{R}^{B \times THW \times d}
+\end{equation}
+
+The rotated output is then produced by applying the standard RoPE formula:
+
+\begin{equation}
+    \text{RoPE}(\mathbf{x}) = \mathbf{x} \cdot \cos(\boldsymbol{\Theta}) + \text{rotate\_half}(\mathbf{x}) \cdot \sin(\boldsymbol{\Theta})
+\end{equation}
+
+\noindent where $\text{rotate\_half}(\mathbf{x})$ splits $\mathbf{x}$ along the last dimension into two equal halves $[\mathbf{x}_1,\, \mathbf{x}_2]$ and returns $[-\mathbf{x}_2,\, \mathbf{x}_1]$, implementing a $90^\circ$ rotation in each two-dimensional frequency sub-space. This operation is applied identically and independently to the query and key vectors inside the cross-attention module, ensuring that the resulting attention scores reflect the relative spatiotemporal displacement between each query--key pair.
+
+\subsection{Spatial Reflect 3D Convolution}
+
+A fundamental building block throughout the AnyUp3D architecture is a custom three-dimensional convolutional layer that serves as a direct drop-in replacement for the two-dimensional reflect-padded convolution used in the original AnyUp model. The module, \texttt{SpatialReflectConv3d}, wraps a standard \texttt{nn.Conv3d} layer and applies padding manually before the convolution, rather than relying on PyTorch's built-in padding argument. This design is necessary because PyTorch's \texttt{Conv3d} does not support reflect padding natively, and the padding strategy must be applied asymmetrically across the spatial and temporal dimensions.
+
+The module accepts a kernel size $k$ for the spatial dimensions and an independent temporal kernel size $t_k$. Spatial padding of $\lfloor k/2 \rfloor$ is applied to the height and width axes using reflect padding, which mirrors the border pixels outward and avoids the introduction of artificial discontinuities at frame boundaries that zero-padding would otherwise cause. Temporal padding of $\lfloor t_k/2 \rfloor$ is applied to the time axis using replicate padding, which repeats the first and last frames rather than reflecting them — a more appropriate boundary condition along the temporal axis, where reflective symmetry has no natural physical interpretation. When $t_k = 1$, the temporal padding reduces to zero and the convolution operates purely within each frame independently, preserving exact equivalence with the original 2D convolution at inference time when a single frame is processed.
+
+After padding, a single \texttt{nn.Conv3d} layer with kernel shape $(t_k,\, k,\, k)$ and no built-in padding is applied to the input tensor of shape $(B, C, T, H, W)$, producing an output of the same spatial and temporal resolution. The inner convolution carries no bias term, consistent with the design of the original AnyUp convolutional layers. The module is used throughout the encoder stack wherever a spatial convolution is required, and its temporal kernel size is controlled globally by the training configuration, allowing the degree of temporal mixing to be adjusted without modifying the module itself.
+
+\subsection{Learned Feature Unification}
+
+A key challenge in feature upsampling is aggregating information from an input feature map that may have an arbitrary number of channels into a fixed-dimensional representation suitable for cross-attention. The \texttt{LearnedFeatureUnification3D} module addresses this by learning a small bank of basis filters that are applied to every input channel independently, and then combining the responses in a way that produces an output of fixed size regardless of the number of input channels.
+
+The module maintains a single learnable parameter, the basis tensor of shape $(d,\, 1,\, t_k,\, k,\, k)$, where $d$ is the desired output dimension, $k$ is the spatial kernel size, and $t_k$ is the temporal kernel size. Given an input feature tensor of shape $(B, C, T, H, W)$, the forward pass begins by applying all $d$ basis filters to every one of the $C$ input channels independently via a depthwise 3D convolution. This produces an intermediate tensor of shape $(B,\, d \cdot C,\, T,\, H,\, W)$, which is then reshaped into $(B,\, d,\, C,\, T,\, H,\, W)$ to make the basis and channel dimensions explicit.
+
+A softmax operation is then applied across the basis dimension, producing an attention weight for each of the $d$ filters at every spatiotemporal location. This can be interpreted as the module learning to identify, for each spatiotemporal patch, which of the $d$ basis patterns best describes it. Finally, the result is averaged across the channel dimension $C$, yielding an output of shape $(B,\, d,\, T,\, H,\, W)$ that is independent of the number of input channels. This channel-averaging property is what makes the module universal — the same learned basis can process feature maps from encoders of any dimensionality without modification.
+
+To avoid artificially attenuating values near the spatial and temporal boundaries due to zero-padding, the depthwise convolution is accompanied by a normalization step. A binary mask of ones is padded and convolved with a unit kernel of the same shape as the basis filters, producing a denominator tensor that counts the number of valid kernel cells contributing to each output position. The raw convolution output is divided by this denominator, ensuring that border responses are on the same scale as interior responses.
+
+
+\subsection{Three-Dimensional Residual Block}
+
+The encoder stack within AnyUp3D is built from stacked residual blocks, which are the primary feature transformation units responsible for progressively refining the intermediate representations before they enter the cross-attention module. The \texttt{ResBlock3D} module is a direct three-dimensional extension of the original two-dimensional residual block used in AnyUp, with all \texttt{Conv2d} layers replaced by their 3D equivalents while preserving the normalization, activation, and skip connection structure unchanged.
+
+Each block consists of a two-layer convolutional sequence. The main branch applies group normalization followed by a SiLU activation and a 3D convolution, then repeats this pattern a second time, transforming the input from $C_{\text{in}}$ to $C_{\text{out}}$ channels. The convolutional layers use a spatial kernel of size $k$ and a temporal kernel of size $t_k$, and are constructed via a shared factory function that selects between \texttt{SpatialReflectConv3d} and a standard \texttt{nn.Conv3d} depending on the specified padding mode. When reflect padding is requested, the \texttt{SpatialReflectConv3d} module described in Section 3.6.2 is used, applying asymmetric reflect and replicate padding manually before the convolution. For other padding modes, a plain \texttt{nn.Conv3d} with built-in padding is used instead.
+
+The skip connection adds the input directly to the output of the main branch. When the number of input and output channels differ, or when a convolutional shortcut is explicitly requested, a $1 \times 1 \times 1$ convolution is applied to the input to project it to the correct channel dimension before addition. Because the shortcut kernel has size one, no padding is required and a plain \texttt{nn.Conv3d} is always safe to use regardless of the global padding mode. When the channel dimensions already match, the skip connection is an identity mapping. The output of the block is the elementwise sum of the main branch and the shortcut, following the standard residual formulation:
+
+\begin{equation}
+    \mathbf{y} = \mathcal{F}(\mathbf{x}) + \mathcal{S}(\mathbf{x})
+\end{equation}
+
+\noindent where $\mathcal{F}$ denotes the two-layer convolutional branch and $\mathcal{S}$ denotes the shortcut. Both GroupNorm and SiLU are shape-agnostic operations that act identically on five-dimensional tensors as they do on four-dimensional tensors, requiring no modification for the temporal dimension.
+
+\subsection{Spatiotemporal Cross-Attention}
+
+The cross-attention module is the core of the AnyUp3D architecture. It is responsible for querying the high-resolution image signal with low-resolution feature tokens, allowing the model to recover spatial detail that the feature extractor discards due to its patch-based tokenization. This subsection describes the three components that together implement this mechanism: the attention mask, the attention layer, and the block that wires them into the full pipeline.
+
+\textit{Implementation note:} Chapter~2 introduces temporal attention as a conceptual simplification — a query at position $(x, y)$ attending to keys at the same position across all $T$ frames (pure column-wise temporal self-attention). The mechanism realised here is different: \texttt{CrossAttention3D} implements 3D windowed cross-attention, in which high-resolution query tokens attend to low-resolution key tokens within a local \emph{spatiotemporal} 3D window. This formulation is chosen for efficiency (temporal locality bounds the attention matrix regardless of clip length) and for the richer spatiotemporal context it provides by jointly attending across space and time in a single operation.
+
+\paragraph{Windowed Attention Masking.}
+Applying cross-attention over the full sequence of $T \cdot H \cdot W$ query tokens against $T \cdot H_k \cdot W_k$ key tokens would produce an attention matrix whose size grows quadratically with resolution, making it computationally prohibitive for video inputs. To address this, \texttt{compute\_attention\_mask\_3d} constructs a sparse boolean mask that restricts each query token to attend only to a local neighborhood of key tokens, both spatially and temporally.
+
+The spatial restriction reuses the existing 2D windowing logic: for each high-resolution query position, only key tokens whose normalized coordinates fall within a window of radius \texttt{spatial\_ratio} around the query's position are permitted. The temporal restriction independently limits attention to frames within a temporal distance of \texttt{window\_t} from the query frame, i.e., a key token at frame $t_k$ is reachable from a query at frame $t_q$ only if $|t_q - t_k| \leq \texttt{window\_t}$. When \texttt{window\_t} is \texttt{None}, no temporal restriction is applied and all frames attend to all other frames. The combined spatiotemporal mask is formed by taking the conjunction of the spatial and temporal allowance matrices, yielding a boolean mask of shape $(T \cdot H_q \cdot W_q,\; T \cdot H_k \cdot W_k)$ where \texttt{True} indicates a blocked position. The mask is cached so that it is computed only once per unique combination of resolution and window parameters.
+
+\paragraph{Cross-Attention Layer.}
+The \texttt{CrossAttention3D} module wraps PyTorch's \texttt{nn.MultiheadAttention} with two additions. First, RMS normalization is applied independently to the query and key sequences before the attention computation, which stabilizes training without introducing learnable scale parameters into the attention scores. Second, the module supports chunked processing of the query sequence: when a chunk size $q_{\text{chunk}}$ is specified, the query tensor is split into non-overlapping chunks along the sequence dimension and attention is computed independently for each chunk against the full key and value sequences. The corresponding rows of the attention mask are sliced to match each chunk, and the chunk outputs are concatenated to recover the full output sequence. This reduces the peak memory footprint of the attention matrix from $\mathcal{O}(Q \cdot K)$ to $\mathcal{O}(q_{\text{chunk}} \cdot K)$, which is critical at high spatial or temporal resolutions.
+
+The attention output is not taken directly from \texttt{nn.MultiheadAttention}. Instead, the raw attention weight matrix $\mathbf{A} \in \mathbb{R}^{B \times Q \times K}$ is extracted and used to compute a weighted sum over the value sequence explicitly:
+
+\begin{equation}
+    \mathbf{out} = \mathbf{A} \cdot \mathbf{V}, \quad \mathbf{A}_{ij} = \frac{\exp(\mathbf{q}_i \cdot \mathbf{k}_j / \sqrt{d})}{\sum_{j'} \exp(\mathbf{q}_i \cdot \mathbf{k}_{j'} / \sqrt{d})}
+\end{equation}
+
+\noindent This design decouples the key sequence used for computing attention scores from the value sequence used for aggregation, which is necessary because AnyUp uses the low-resolution feature map as both key and value but allows them to be processed differently.
+
+\paragraph{Cross-Attention Block.}
+The \texttt{CrossAttentionBlock3D} module is the top-level unit that combines all of the above into a single forward pass. It accepts query, key, and value tensors of shape $(B, C, T, H, W)$. Before attention is computed, a depthwise $1 \times 3 \times 3$ convolution is applied to the query tensor, which mixes spatial context within each frame without mixing across frames and refines the query representation before it is projected into the attention space. The attention mask is then computed from the current spatial and temporal resolution parameters, and all three tensors are flattened from $(B, C, T, H, W)$ into $(B,\; T \cdot H \cdot W,\; C)$ to match the sequence-first format expected by \texttt{CrossAttention3D}. After attention, the output sequence is reshaped back into $(B, C, T, H, W)$.
+
+\subsection{Training Configuration}
+
+Training was conducted entirely within Google Colab using an NVIDIA Tesla T4 GPU (15\,GB VRAM). To guard against session disconnects, a practical constraint of the Colab environment, where free-tier sessions expire after approximately 4--5 hours of runtime, all checkpoints and TensorBoard logs were written directly to Google Drive. This setup allowed training to be interrupted and resumed across sessions, with both the model weights and the data-shuffle state restored from the latest checkpoint.
+
+\paragraph{Training Dataset.}
+The model was trained on a subset of UCF-101, restricted to the ten most frequent action classes (approximately 1,170 training and 460 test clips). This subset was chosen for its availability, manageable size, and diversity of motion types. During training, $T$ consecutive frames are sampled at random from each clip and decoded on-the-fly using \texttt{PyAV}. Frames are first resized to $256 \times 256$ pixels and ImageNet-normalised at the dataset level. A further random spatial tube crop to $224 \times 224$ pixels is applied per-sample during the training step, ensuring that the same spatial region is cropped consistently across all $T$ frames. This high-resolution crop (\texttt{crop\_high}) is passed directly to the frozen VideoMAE teacher to produce the ground-truth feature targets at $14 \times 14$ token resolution. It is simultaneously downsampled via bilinear interpolation to $112 \times 112$ pixels to produce the low-resolution guidance input (\texttt{crop\_low}), which AnyUp3D is trained to upsample back to the teacher resolution.
+
+\paragraph{Teacher Model.}
+A frozen VideoMAE encoder (\texttt{MCG-NJU/videomae-base}, ViT-B, tubelet size 2, patch size 16) provides the pseudo-ground-truth feature maps that AnyUp3D is trained to reproduce. Given a clip of $T$ frames, the teacher processes the $224 \times 224$ high-resolution crop directly, producing spatiotemporal tokens of shape $(B,\,768,\,T/2,\,14,\,14)$. The same encoder is also applied to the $112 \times 112$ low-resolution guidance frames, which it internally upscales to its native $224 \times 224$ resolution via bilinear interpolation before computing features; the resulting $14 \times 14$ guidance tokens are then further downsampled to $7 \times 7$ to serve as the coarse input that AnyUp3D upsamples. Because VideoMAE's positional embeddings are fixed for 16 frames, the temporal positional embedding is bilinearly interpolated to the actual token count $T/2$ before each forward pass and restored immediately afterwards. The encoder is kept frozen throughout; only AnyUp3D is updated.
+
+\paragraph{Temporal Curriculum ($T$-schedule).}
+Training follows a staged curriculum in which the number of input frames $T$ increases progressively:
+
+\begin{center}
+\begin{tabular}{cccc}
+\toprule
+Stage & Frames ($T$) & Batch size & Activates at step \\
+\midrule
+1 & 2 & 2 & 0      \\
+2 & 4 & 1 & 5{,}000  \\
+3 & 8 & 1 & 15{,}000 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The minimum of $T=2$ is imposed by VideoMAE's tubelet embedding, which requires at least one complete temporal tube of two frames. Prior to this curriculum, a brief single-frame ($T=1$) architectural sanity check was performed by slicing a single temporal token from the VideoMAE feature map; this was used solely to verify that the 2D AnyUp weights loaded correctly into the 3D architecture and that no components were broken, and does not constitute a formal training stage. Batch size is reduced at each curriculum stage to keep GPU memory approximately constant. The curriculum stabilises spatial upsampling quality early in training before the temporal consistency objective is introduced.
+
+\subsection{Loss Function}
+\label{sec:losses}
+Training minimises a four-component objective:
+
+\begin{equation}
+\mathcal{L} = \lambda_{\mathrm{rec}}\,\mathcal{L}_{\mathrm{cos\text{-}mse}}
+            + \lambda_{\mathrm{inp}}\,\mathcal{L}_{\mathrm{inp}}
+            + \lambda_{\mathrm{aug}}\,\mathcal{L}_{\mathrm{aug}}
+            + \lambda_{\mathrm{temp}}(s)\,\mathcal{L}_{\mathrm{temp}}
+\end{equation}
+
+\noindent The primary reconstruction term $\mathcal{L}_{\mathrm{cos\text{-}mse}}$ is the \texttt{Cosine\_MSE} criterion from the original AnyUp codebase, applied to the predicted and teacher feature volumes by flattening the temporal and spatial axes before computing the per-pixel cosine similarity and mean squared error. This loss is backbone-agnostic, operating on normalised feature vectors regardless of their absolute scale.
+
+The input consistency term $\mathcal{L}_{\mathrm{inp}}$ enforces that the predicted high-resolution features, when spatially pooled back to the coarse $7{\times}7$ resolution, remain consistent with the input guidance features. This discourages the model from producing upsampled features that are spatially plausible but inconsistent with the low-resolution signal it was conditioned on.
+
+The self-consistency term $\mathcal{L}_{\mathrm{aug}}$ encourages robustness to small perturbations in the guidance signal. Gaussian noise ($\sigma = 0.05$) is added specifically to \texttt{crop\_low} (the low-resolution guidance frames), from which a perturbed set of teacher guidance features is then extracted and downsampled to $7 \times 7$. AnyUp3D is run with this noisy guidance alongside the unchanged high-resolution crop \texttt{crop\_high}, and its output is compared against the clean prediction (held fixed via \texttt{detach}). This design choice targets the guidance path specifically, since it is the low-resolution features---not the high-resolution RGB signal---that are subject to variation across different backbones and encoder configurations.
+
+The temporal consistency term $\mathcal{L}_{\mathrm{temp}}$ penalises frame-to-frame feature differences, modulated by a motion-aware gate derived from the low-resolution guidance frames:
+\begin{equation}
+\mathcal{L}_{\mathrm{temp}} = \frac{1}{T_t - 1}\sum_{t=1}^{T_t-1} \mathcal{G}_t \odot \|\hat{f}_t - \hat{f}_{t-1}\|_2^2
+\end{equation}
+where $T_t = T / t_{\text{tubelet}}$ is the number of temporal tokens, and $\mathcal{G}_t$ is the RGB-difference gate:
+\begin{equation}
+\mathcal{G}_t = 1 - \frac{\Delta_t}{\max_{t'} \Delta_{t'} + \epsilon}, \quad \Delta_t = \frac{1}{C}\sum_c \left| I^{\mathrm{low}}_{t,c} - I^{\mathrm{low}}_{t-1,c} \right|
+\end{equation}
+$\Delta_t$ is the mean absolute per-channel pixel difference of adjacent low-resolution guidance frames, normalised per-sample. The gate $\mathcal{G}_t \in [0, 1]$ is low where genuine motion is high, which reduces the penalty in regions of fast motion and focuses temporal smoothness enforcement on regions where frame-to-frame change is not justified by the content. This prevents the loss from penalising legitimate fast motion while still suppressing flickering artifacts in static or slow-moving regions. The term is only active when $T_t > 1$. Its effective weight $\lambda_{\mathrm{temp}}(s)$ is linearly ramped from zero to its final value over the first 5{,}000 steps of training, giving the model time to stabilise spatial quality before temporal smoothness is enforced. Loss weights are $(\lambda_{\mathrm{rec}},\,\lambda_{\mathrm{inp}},\,\lambda_{\mathrm{aug}},\,\lambda_{\mathrm{temp}}) = (1.0,\,0.1,\,0.1,\,0.2)$.
+
+\paragraph{Optimiser and Learning Rate Schedule.}
+The model is optimised with AdamW ($\mathrm{lr} = 2 \times 10^{-4}$, weight decay $= 1 \times 10^{-4}$). The learning rate decays following a cosine annealing schedule over the full 50{,}000 training steps, with a minimum of $1\%$ of the peak value. Gradients are clipped to a maximum $\ell_2$ norm of 1.0 to prevent instability at curriculum stage transitions.
+
+\paragraph{Mixed Precision and Initialisation.}
+All forward and backward passes are executed under \texttt{torch.bfloat16} mixed precision via \texttt{torch.autocast}, with a \texttt{GradScaler} handling loss scaling. AnyUp3D weights are initialised from the pretrained 2D AnyUp checkpoint using a weight-adaptation script that centre-initialises newly added temporal kernel dimensions in the 3D convolutions, preserving the single-frame equivalence of the 2D baseline at the start of training.
+
+\section{Evaluation Plan}
+
+The performance of the AnyUp3D system is monitored through two complementary
+mechanisms: a set of loss-based proxy metrics computed continuously during training,
+and a periodic held-out reconstruction evaluation on the UCF-101 test split.
+Together, these provide a principled basis for assessing both training health and
+model quality throughout the training process.
+
+\subsection{Loss-Based Proxy Metrics}
+
+The four-component loss function defined in Section~3.6 serves a dual role: it
+provides the training signal but also functions as the primary evaluation instrument
+during training. Each term measures a distinct and independently interpretable
+aspect of model quality:
+
+\begin{itemize}
+    \item \textbf{Reconstruction quality ($\mathcal{L}_{\mathrm{cos\text{-}mse}}$):}
+    The primary indicator of spatial upsampling fidelity. A decreasing reconstruction
+    loss confirms that AnyUp3D is learning to align its upsampled feature maps with
+    the VideoMAE teacher's representations at the target $14 \times 14$ resolution.
+    Monitoring this term across curriculum stages also reveals whether spatial quality
+    is preserved as the temporal window $T$ is extended.
+
+    \item \textbf{Input consistency ($\mathcal{L}_{\mathrm{inp}}$):}
+    Validates coherence between the upsampled output and the low-resolution guidance
+    it was conditioned on. A consistently low $\mathcal{L}_{\mathrm{inp}}$ confirms
+    that the model is not hallucinating spatial structure that contradicts the
+    coarse input signal.
+
+    \item \textbf{Self-consistency ($\mathcal{L}_{\mathrm{aug}}$):}
+    Serves as a proxy for robustness. A low and stable $\mathcal{L}_{\mathrm{aug}}$
+    indicates that predictions are insensitive to small perturbations in the low-resolution
+    guidance features, which is desirable for reliable performance across varied backbone
+    outputs and encoder configurations.
+
+    \item \textbf{Temporal consistency ($\mathcal{L}_{\mathrm{temp}}$):}
+    The primary indicator of temporal stability. Its value should decrease as $T$
+    increases through the curriculum, confirming that the temporal modules are
+    suppressing frame-to-frame feature fluctuations. The RGB-diff gate ensures
+    that the metric is not penalised in regions of genuine fast motion, making it
+    a meaningful proxy for flickering artifacts rather than a na\"{\i}ve penalty
+    on all inter-frame change.
+\end{itemize}
+
+All four metrics are logged to TensorBoard at every $\texttt{log\_every\_n\_steps} = 50$
+steps, alongside the learning rate, curriculum stage $T$, and batch size. This enables
+detection of training instabilities, loss divergence at curriculum transitions, and
+regressions in individual loss components that might otherwise be masked by the total loss.
+
+\subsection{Held-Out Reconstruction Evaluation}
+
+In addition to training-loss monitoring, a held-out reconstruction evaluation is performed
+on the UCF-101 test split every $\texttt{val\_every\_n\_steps} = 1{,}000$ training steps.
+At each evaluation point, the model is switched to eval mode and run over the full test
+split with the VideoMAE teacher providing ground-truth feature targets. The reconstruction
+loss $\mathcal{L}_{\mathrm{cos\text{-}mse}}$ is computed for each batch, averaged across
+the split, and logged as \texttt{loss/val\_rec} to TensorBoard.
+
+This held-out metric serves as the primary overfitting check. If the training
+reconstruction loss continues to decrease while \texttt{val\_rec} plateaus or diverges,
+it signals that the model is memorising specific clips rather than learning generalizable
+upsampling behavior. Convergence of both training and validation reconstruction loss
+is the expected signal of a well-behaved model.
+
+\subsection{Downstream Evaluation}
+
+The proxy metrics described above evaluate model quality in terms of feature-space
+alignment and temporal smoothness. To validate the system's practical value for
+downstream video understanding tasks, a further evaluation on the DAVIS-2017
+validation split is presented in Chapter~4. This evaluation assesses:
+
+\begin{itemize}
+    \item \textbf{Spatial fidelity ($\mathcal{J}\&\mathcal{F}$):} Whether the addition
+    of temporal modules preserves the spatial upsampling quality of the original AnyUp
+    baseline, evaluated via region similarity ($\mathcal{J}$) and contour accuracy
+    ($\mathcal{F}$) on video object segmentation.
+    \item \textbf{Temporal stability:} Whether the trained model produces coherent,
+    stable feature maps across consecutive frames relative to the frame-by-frame
+    AnyUp baseline, quantified by the mean cosine similarity between adjacent
+    predicted frames on the DAVIS-2017 validation sequences.
+\end{itemize}
+
+\section{Chapter Summary}
+This chapter presented the complete methodology for designing and implementing AnyUp3D, a temporally consistent universal feature upsampling framework that extends the state-of-the-art AnyUp model into the spatio-temporal domain.
+
+The chapter began by defining the system's functional and non-functional requirements, establishing backbone agnosticism, modularity, and trainability under limited hardware as the core design constraints. Three alternative approaches to solving the temporal inconsistency problem were then considered---optical flow-based warping, recurrent networks, and naive temporal post-processing---before justifying the selection of the proposed integrated spatio-temporal approach on the grounds of both architectural soundness and direct validation in the literature.
+
+The system framework was subsequently presented as a three-stage pipeline. \textbf{Stage~1 (Input Volume Construction)} assembles the high-resolution RGB video and low-resolution feature volumes from the frozen backbone into the tensors required by the decoder. \textbf{Stage~2 (Spatiotemporal Feature Encoding)} processes both volumes through stacked ResBlock3D units, which incorporate 3D convolutions to extract local spatiotemporal patterns; this stage also applies 3D Rotary Positional Encoding to the guidance path and the Learned Feature Unification module to normalize arbitrary backbone features into a fixed-dimensional space. \textbf{Stage~3 (Spatiotemporal Cross-Attention and Upsampling)} performs the core upsampling via \texttt{CrossAttentionBlock3D}, which implements 3D windowed cross-attention — high-resolution query tokens attending to low-resolution key tokens within a local spatiotemporal window. Temporal consistency is realized inside this cross-attention block through the 3D mask rather than via a separate standalone component.
+
+The UCF-101 dataset was documented as the training source, and DAVIS-2017 was identified as the benchmark for downstream evaluation presented in Chapter~4. Implementation details were subsequently specified, covering the PyTorch-based modular architecture, the $3 \times 3 \times 3$ convolution kernel, the 4-head cross-attention configuration, the four-component loss function with RGB-diff-gated temporal consistency term, and the memory-efficient training adaptations adopted for the Google Colab environment.
+
+Finally, the evaluation plan was defined across two levels: a training-time evaluation using the four loss components as proxy metrics for spatial fidelity, input coherence, robustness, and temporal stability---monitored continuously via TensorBoard---and a periodic held-out reconstruction evaluation on the UCF-101 test split to guard against overfitting. The downstream evaluation on the DAVIS-2017 validation split, measuring $\mathcal{J}\&\mathcal{F}$ and temporal feature stability relative to the frame-by-frame AnyUp baseline, is presented in Chapter~4.
+
+The next chapter will present the experimental results obtained from applying this methodology, including the quantitative performance metrics observed during training and a discussion of the model's convergence behavior across the temporal curriculum stages.

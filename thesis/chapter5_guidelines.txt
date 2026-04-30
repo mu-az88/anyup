@@ -1,0 +1,46 @@
+Chapter 5: Conclusion and Future Directions
+5.1 Chapter Overview
+This chapter synthesises the principal findings of the thesis, restates the original contribution without
+introducing new data, acknowledges limitations, and provides actionable, technically precise
+recommendations for subsequent research and engineering practice.
+5.2 Summary of Achievements (Against Objectives)
+ Revisit the three to four objectives from Chapter 1.
+ Use a numbered list or table mapping objectives → results.
+Example (Power):
+1. Objective 1: Design a decentralised control for microgrids → Achieved (settling time improved by
+27%).
+2. Objective 2: Reduce harmonic distortion under unbalanced load → Achieved (THD <3% for all tested
+cases).
+5.3 Limitations and Critical Reflection (Mandatory for Excellence)
+ Explicitly state what the proposed system does not do well.
+ Distinguish between:
+o Methodological limitations: Simplified assumptions (e.g., ideal communication links,
+linearity)
+o Validation limitations: Data or experimental constraints (e.g., imbalanced dataset, limited
+test scenarios)
+Example: "The proposed control law assumes ideal communication links; performance under packet loss
+was not evaluated. Furthermore, the dataset for fault classification, while publicly available, is imbalanced
+with respect to rare fault types."
+5.4 Recommendations for Future Research (Actionable Directions)
+5.4.1 Short-term Extensions (1–2 years)
+ Algorithmic: "Implement the same controller with event-triggered learning to reduce computational
+load by an estimated 60%."
+ Hardware: "Port the neural network to a lower-cost STM32 microcontroller for edge deployment."
+ Validation: "Collect experimental data from a physical 5 kW prototype under real temperature
+cycling."
+5.4.2 Long-term Research Avenues (3–5 years)
+ Theoretical: "Extend the stability proof to non-stationary environments using Lyapunov drift
+analysis."
+ Interdisciplinary: "Integrate the fault diagnosis module with digital twin frameworks for predictive
+maintenance."
+ Open challenges: "Address the explainability gap for safety-critical approval (e.g., IEC 61508
+certification)."
+5.5 Final Concluding Remarks
+One concise paragraph (maximum 150 words) that echoes the opening of the thesis but now with the
+weight of evidence.
+Example (applicable to all four specializations): "This thesis demonstrated that merging model-based
+control with deep reinforcement learning yields superior performance in non-linear power electronic
+systems. By providing validated open-source code and a reproducible benchmark, this work lays a
+foundation for certifiable AI in energy grids. The findings confirm that hybrid intelligence – not purely
+model-free or purely model-based – represents the most promising path for next-generation electrical
+engineering systems."

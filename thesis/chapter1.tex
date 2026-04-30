@@ -1,0 +1,44 @@
+\chapter{INTRODUCTION}
+
+% 1. Background of the Study
+\section{Background of the Study}
+Computer vision has witnessed a paradigm shift with the advent of Vision Foundation Models (VFMs) such as DINOv2~\cite{dinov2}, CLIP~\cite{radford2021clip}, and SigLIP~\cite{zhai2023siglip}\@.\@ These models, trained on vast datasets, provide robust semantic representations that are essential for various downstream applications. However, the architecture of these models—primarily Vision Transformers (ViTs)—typically produces feature maps at a significantly lower resolution than the input image. For instance, a standard ViT might output a $16\times16$ feature grid, which lacks the spatial precision required for dense prediction tasks like segmentation or depth estimation.
+To address this resolution gap, the field of ``feature upsampling'' has matured. Over the years, feature upsampling evolved from fixed interpolation and unpooling to transposed convolutions, sub-pixel rearrangements, multi-scale pyramids, and content-aware dynamic filtering. Despite improved expressiveness, these approaches remained task-specific and heavily hand-tuned, motivating the emergence of universal, domain-agnostic upsampling models. These learned models, such as the state-of-the-art ``AnyUp,'' treat feature maps as continuous coordinates rather than discrete pixels, allowing for arbitrary resolution scaling without retraining the backbone model. While these advancements have solved the resolution problem for static images, the transition to dynamic video processing introduces new challenges related to temporal stability and consistency.
+
+% 2. Problem Statement
+\section{Problem Statement}
+Despite the success of universal feature upsampling in the image domain, a critical gap remains when applying these models to video sequences. Current state-of-the-art universal upsamplers, such as AnyUp and LoftUp, are inherently image-based architectures. Consequently, when applied to video, they operate on a frame-by-frame basis, processing each timestamp independently. Because they were not designed to capture temporal dynamics, they effectively ignore the correlation between consecutive frames. This independence leads to \textbf{temporal inconsistency}. Even when individual frames are upsampled with high visual quality, small variations in the input features can cause flickering artifacts, unstable object boundaries, and jittering details over time. There is currently no universal feature upsampling framework that explicitly models temporal consistency, forcing developers to choose between the flexibility of universal upsamplers and the stability of task-specific video models.
+
+% 3. Significance of the Project
+\section{Significance of the Project}
+This research advances the theoretical framework of universal feature upsampling by extending its reach from the 2D spatial domain into the 3D spatio-temporal domain, effectively bridging the gap between isolated image processing and coherent video understanding. By establishing a foundation for temporally stable feature representations, this approach facilitates high-fidelity, flicker-free semantic selection in video editing and significantly bolsters the precision of Multi-Object Tracking (MOT) and Video Object Segmentation (VOS). Ensuring that high-resolution features remain consistent across timestamps allows perception systems to more accurately detect and follow small objects within complex, dynamic environments, resolving the inherent instabilities found in traditional frame-by-frame processing.
+
+% 4. Project Objectives
+\section{Project Objectives}
+The primary goal of this research is to architect a temporally consistent universal feature upsampling model that transcends the limitations of static 2D architectures. By extending the capabilities of the AnyUp framework into the temporal dimension, the project aims to establish a ``AnyUp3D'' system capable of generating high-resolution, stable feature maps across continuous video sequences. This objective is realized through a series of technical milestones:
+
+\begin{itemize}
+\item \textbf{Design} a temporally-extended upsampling architecture that incorporates 3D convolutions in the encoder and 3D cross-attention with temporal masking to capture inter-frame dependencies within the AnyUp framework.
+\item \textbf{Construct} the proposed architecture using PyTorch, prioritizing a modular design to ensure the upsampler remains backbone-agnostic and fully compatible with foundational models like DINOv2 and SigLIP\@.
+\item \textbf{Train} the model on the UCF-101 dataset to cultivate robust temporal priors, allowing the system to learn how features evolve across dynamic motion patterns.
+\item \textbf{Validate} the system's performance using the DAVIS-2017 benchmark, quantitatively assessing spatial precision and temporal consistency through J\&F scores relative to standard frame-wise baselines.
+\item \textbf{Optimize} the inference pipeline to maintain the ``universal efficiency'' of the original model while accounting for the increased complexity of spatio-temporal data processing.
+\end{itemize}
+% 5. Scope and Limitations
+\section{Scope and Limitations of the Study}
+This study focuses specifically on extending the AnyUp model to enhance temporal consistency. The project covers the design and implementation of 3D convolutions in the encoder and 3D cross-attention with temporal masking, and their integration into the upsampling pipeline.
+
+\textbf{Limitations:}
+\begin{itemize}
+    \item The study validates the model primarily on the DAVIS-2017 dataset; other video tasks (like depth completion) are outside the primary scope.
+    \item The project does not aim to optimize the model for real-time processing on edge devices; the focus is on accuracy and stability.
+    \item Training is limited by available GPU resources, which may constrain the batch size and sequence length during experimentation.
+\end{itemize}
+
+% 6. Methodology Overview
+\section{Methodology Overview}
+The methodology follows a structured engineering approach. It begins with a comprehensive theoretical study of existing upsampling and video consistency literature. This is followed by the system design phase, where the ``AnyUp3D'' architecture is defined, incorporating temporal layers into the existing spatial attention mechanism.  The implementation phase involves coding the model in Python/PyTorch and training it on video sequences. Finally, performance evaluation is conducted by benchmarking the proposed model against existing video-based upsampling solutions and by integrating the module into various downstream video architectures to determine if its inclusion yields a measurable improvement in task-specific performance and temporal stability.
+
+% 7. Organization of the Thesis
+\section{Organization of the Thesis}
+\textbf{Chapter One} establishes the foundation of the research, providing the background, motivation, and a clear definition of the problem the study intends to solve. \textbf{Chapter Two} provides the theoretical background on Vision Transformers and upsampling, followed by a review of relevant literature. \textbf{Chapter Three} details the methodology, system architecture, and implementation steps. \textbf{Chapter Four} presents the experimental results, data analysis, and discussion of findings. Finally, \textbf{Chapter Five} concludes the work and offers recommendations for future research.

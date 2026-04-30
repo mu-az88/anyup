@@ -1,0 +1,144 @@
+% ============================================================
+% Chapter 5 — Conclusion and Future Directions
+% ============================================================
+\chapter{CONCLUSION AND FUTURE DIRECTIONS}
+\label{ch:conclusion}
+
+% ────────────────────────────────────────────
+\section{Chapter Overview}
+
+This chapter synthesises the principal findings of this thesis.
+Section~\ref{sec:achievements} revisits the five technical objectives stated in Chapter~1 and evaluates the degree to which each was achieved.
+Section~\ref{sec:limitations} reflects critically on the methodological and validation limitations that constrain the conclusions that can be drawn from the experimental results.
+Section~\ref{sec:future} offers technically precise and actionable recommendations for extending this work over the short and long term.
+Section~\ref{sec:closing} provides a final concluding statement.
+
+% ────────────────────────────────────────────
+\section{Summary of Achievements Against Objectives}
+\label{sec:achievements}
+
+Chapter~1 defined five objectives for this research.
+Table~\ref{tab:objectives} maps each objective to its outcome.
+
+\begin{table}[h]
+\centering
+\caption{Project objectives and their outcomes.}
+\label{tab:objectives}
+\small
+\begin{tabular}{p{0.5\linewidth} p{0.45\linewidth}}
+\toprule
+\textbf{Objective} & \textbf{Outcome} \\
+\midrule
+1.\ \textbf{Design} a temporally-extended upsampling architecture incorporating 3D convolutions in the encoder and 3D cross-attention with temporal masking. &
+\textit{Achieved.} Both components were designed and integrated into the AnyUp pipeline, producing AnyUp3D. \\
+\addlinespace
+2.\ \textbf{Construct} the architecture in PyTorch with a modular, backbone-agnostic design compatible with foundation models such as DINOv2 and SigLIP. &
+\textit{Achieved with modification.} A fully modular PyTorch implementation was produced. VideoMAE was used as the backbone in lieu of the originally planned image-based foundation models, as its native spatiotemporal tokenization is better suited to the temporal architecture. \\
+\addlinespace
+3.\ \textbf{Train} the model on the UCF-101 dataset to cultivate temporal priors. &
+\textit{Partially achieved.} Training on UCF-101 was completed for 6{,}000 steps. The T-curriculum reached the $T\!=\!4$ stage; the planned $T\!=\!8$ stage was not reached due to compute constraints, and training did not converge to the level achieved by the original 2D AnyUp (100{,}000 steps). \\
+\addlinespace
+4.\ \textbf{Validate} system performance on the DAVIS-2017 benchmark using J\&F scores and temporal consistency metrics relative to frame-wise baselines. &
+\textit{Achieved.} AnyUp3D improved mean temporal cosine similarity from $0.863$ to $0.944$ ($+0.081$) over the 2D AnyUp baseline across all 30 DAVIS clips, and improved mean J\&F from $0.251$ to $0.362$ ($+0.110$) over the bilinear baseline. \\
+\addlinespace
+5.\ \textbf{Optimize} the inference pipeline to maintain the universal efficiency of the original model while accounting for increased spatio-temporal complexity. &
+\textit{Partially achieved.} The T-curriculum strategy was designed to scale complexity incrementally, and mixed-precision inference was employed. Formal inference-time benchmarking (latency and throughput) was not conducted. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In summary, the two primary technical contributions — the architectural design and the empirical validation — were fully achieved.
+The training objective was partially achieved due to GPU resource constraints, and the optimization objective was addressed at the design level but not formally benchmarked.
+
+% ────────────────────────────────────────────
+\section{Limitations and Critical Reflection}
+\label{sec:limitations}
+
+\subsection{Methodological Limitations}
+
+\paragraph{Backbone mismatch with dense prediction.}
+VideoMAE was chosen because its tubelet embedding natively produces spatiotemporal tokens, making it a principled input for AnyUp3D.
+However, VideoMAE is pre-trained for video-level classification, not for dense per-pixel prediction.
+Its features consequently lack the spatial specificity that backbones such as Video Swin Transformer or DINOv2 would provide for segmentation tasks.
+This limits the absolute level of downstream performance that can be achieved and means the J\&F scores reported in Chapter~4 should be treated as a lower bound on AnyUp3D's potential with a better-aligned backbone.
+
+\paragraph{Heuristic temporal gating.}
+The RGB-difference gate in the temporal consistency loss excludes frame pairs whose pixel-level difference is below a fixed threshold.
+This heuristic was designed to avoid penalising the model for genuinely different content, but in practice it under-penalises fast-motion sequences such as \textit{bmx-trees} and \textit{motocross-jump}, where large inter-frame RGB differences cause most pairs to be excluded.
+The gate thus provides weaker training signal precisely where temporal modelling is hardest, which explains the remaining inconsistency on high-motion clips.
+
+\paragraph{Incomplete T-curriculum.}
+The training curriculum was designed in three stages ($T\!=\!2$, $T\!=\!4$, $T\!=\!8$).
+Only the first two stages were completed in the available training budget.
+Consequently, the model was never exposed to the full eight-frame temporal windows it is architecturally capable of processing, and temporal priors for long-range dependencies were not learned.
+
+\paragraph{Single training run.}
+All results are reported from a single training run with a fixed random seed.
+While the temporal consistency improvements are observed consistently across all 30 clips — which reduces the likelihood of a chance result — the J\&F scores are not supported by confidence intervals, and the failure cases (\textit{car-shadow}, \textit{bmx-trees}, \textit{dog}) could in principle be seed-dependent.
+
+\subsection{Validation Limitations}
+
+\paragraph{Absence of a spatial-only benchmark.}
+No experiment was conducted on a standard image segmentation dataset (e.g., ADE20K) to measure spatial upsampling quality in isolation.
+The PCA visualisations in Experiment~1 provide qualitative evidence of spatial structure, and the improvement in $\mathcal{F}$-score in Experiment~3 provides indirect quantitative evidence, but neither constitutes a rigorous, standalone spatial benchmark.
+The relative contribution of spatial quality versus temporal consistency to the overall J\&F improvement cannot be quantified from the current results alone.
+
+\paragraph{No ablation study.}
+The contribution of each individual design decision — 3D convolutions in the encoder, 3D cross-attention, temporal masking, the RGB-difference gate, the T-curriculum — was not isolated experimentally.
+It is therefore not possible to determine which components are responsible for the observed improvements, nor whether any component is redundant.
+
+\paragraph{Single evaluation benchmark.}
+The model was validated exclusively on DAVIS-2017.
+This is a widely-used standard, but it covers only 30 clips and is biased towards relatively short sequences with a limited range of motion types.
+Generalisation to other video benchmarks (e.g., YouTube-VOS, VSPW, or optical flow datasets) has not been demonstrated.
+
+% ────────────────────────────────────────────
+\section{Recommendations for Future Research}
+\label{sec:future}
+
+\subsection{Short-Term Extensions (1--2 Years)}
+
+\paragraph{Complete the T-curriculum with a larger training budget.}
+Extending training to at least 30{,}000 steps — reaching the $T\!=\!8$ stage — would allow the model to learn long-range temporal dependencies and would likely close a substantial portion of the performance gap between AnyUp3D and the original AnyUp.
+Training on a single A100 GPU for approximately 48 hours would be sufficient to reach this target.
+
+\paragraph{Conduct a systematic ablation study.}
+Isolating the contribution of each component (3D encoder convolutions, 3D cross-attention, temporal masking, RGB-difference gate) through controlled ablation experiments would clarify the relative importance of each design decision.
+This would both strengthen the scientific contribution of the work and guide future architectural improvements.
+
+\paragraph{Replace VideoMAE with a dense-prediction backbone.}
+Substituting VideoMAE with Video Swin Transformer~\cite{liu2022video} or a frame-level DINOv2 backbone would provide features better aligned to pixel-level tasks.
+Based on the J\&F gap between VideoMAE-based pipelines and dedicated VOS methods, a backbone switch alone is estimated to raise the mean J\&F by $0.10$--$0.15$ without any changes to AnyUp3D itself.
+
+\paragraph{Validate on additional benchmarks.}
+Evaluating AnyUp3D on YouTube-VOS~\cite{xu2018youtube} and a standard image segmentation dataset such as ADE20K would demonstrate generality beyond DAVIS-2017 and provide the spatial-only baseline that was absent from the current evaluation.
+
+\paragraph{Replace the heuristic RGB-difference gate with a learned temporal weighting.}
+Training a lightweight network to predict the reliability of each frame pair as a training signal — rather than using a fixed RGB-difference threshold — would provide more principled temporal weighting and address the under-penalisation of fast-motion clips identified in Section~\ref{sec:limitations}.
+
+\subsection{Long-Term Research Avenues (3--5 Years)}
+
+\paragraph{Extend universality to additional modalities.}
+The backbone-agnostic design of AnyUp3D is not limited to RGB video.
+Extending the framework to handle features from depth sensors, LiDAR point clouds, or thermal cameras would broaden its applicability to autonomous driving and robotics perception pipelines, where multi-modal temporal consistency is a persistent open challenge.
+
+\paragraph{Efficient temporal attention for real-time deployment.}
+The current 3D cross-attention mechanism has quadratic complexity in the temporal dimension.
+Replacing it with linear attention or sparse windowed attention — analogous to the approach taken in Video Swin Transformer — would reduce inference time sufficiently to enable real-time processing at 30 frames per second on consumer-grade GPUs.
+This is a prerequisite for deployment in video editing tools and live streaming applications.
+
+\paragraph{Integration with video diffusion models.}
+Large-scale video generation models such as Sora and Stable Video Diffusion produce temporally coherent latent representations that are structurally similar to the feature maps AnyUp3D is designed to upsample.
+Integrating AnyUp3D as a temporal upsampling stage within a video diffusion pipeline could improve the spatial resolution of generated videos without retraining the generative backbone, representing a computationally efficient path to higher-fidelity video synthesis.
+
+\paragraph{Theoretical analysis of temporal stability guarantees.}
+The current work demonstrates empirical temporal consistency improvements but does not provide a theoretical characterisation of the conditions under which the 3D cross-attention mechanism is guaranteed to produce stable features.
+Deriving bounds on the inter-frame feature variation as a function of architecture hyperparameters (window size, number of heads, temporal kernel size) would lay a rigorous foundation for deploying AnyUp3D in safety-critical applications such as medical video analysis.
+
+% ────────────────────────────────────────────
+\section{Final Concluding Remarks}
+\label{sec:closing}
+
+This thesis demonstrated that the resolution gap inherent to Vision Foundation Models can be addressed in the temporal domain as well as the spatial domain.
+By introducing 3D convolutional encoding and 3D cross-attention with temporal masking into the AnyUp framework, AnyUp3D produces high-resolution feature maps that are stable across time — achieving a mean temporal cosine similarity improvement of $+0.081$ over frame-independent upsampling on every clip in the DAVIS-2017 benchmark, and translating this into a $+0.110$ improvement in downstream video object segmentation quality.
+The work establishes a principled, backbone-agnostic foundation for temporally consistent universal upsampling, confirming that explicitly modelling inter-frame dependencies is both necessary and sufficient to overcome the flickering artifacts that limit the practical utility of image-based upsampling methods in video applications.
