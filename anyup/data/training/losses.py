@@ -225,13 +225,13 @@ def combined_loss(
     model,                      # AnyUp3D — needed for L_self forward passes
 
     # --- fixed weights ---
-    lambda1: float = 0.5,       # ↑ weight for L_input-consistency
-    lambda2: float = 0.5,       # ↑ weight for L_self-consistency
+    lambda1: float = 0.1,       # ↑ weight for L_input-consistency
+    lambda2: float = 0.1,       # ↑ weight for L_self-consistency
                                 #   if self-consistency dominates, reduce lambda2 first
 
     # --- temporal schedule ---
-    lambda3_max: float = 0.01,  # ↑ max weight for L_temporal — keep small; temporal loss is supplementary
-    warmup_steps: int  = 1000,  # ↑ steps before lambda3 reaches max; increase for unstable early training
+    lambda3_max: float = 0.2,   # ↑ max weight for L_temporal after warmup
+    warmup_steps: int  = 5000,  # ↑ steps before lambda3 reaches max; increase for unstable early training
                                 #   depends on T-curriculum (task 5.3): set >= steps before T>1 is reached
     step: int = 0,              # ↑ current global step — passed in from training loop (task 5.2)
 

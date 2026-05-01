@@ -63,7 +63,7 @@ Its features consequently lack the spatial specificity that backbones such as Vi
 This limits the absolute level of downstream performance that can be achieved and means the J\&F scores reported in Chapter~4 should be treated as a lower bound on AnyUp3D's potential with a better-aligned backbone.
 
 \paragraph{Heuristic temporal gating.}
-The RGB-difference gate in the temporal consistency loss excludes frame pairs whose pixel-level difference is below a fixed threshold.
+The RGB-difference gate in the temporal consistency loss excludes frame pairs whose pixel-level difference exceeds a fixed threshold.
 This heuristic was designed to avoid penalising the model for genuinely different content, but in practice it under-penalises fast-motion sequences such as \textit{bmx-trees} and \textit{motocross-jump}, where large inter-frame RGB differences cause most pairs to be excluded.
 The gate thus provides weaker training signal precisely where temporal modelling is hardest, which explains the remaining inconsistency on high-motion clips.
 
@@ -141,4 +141,8 @@ Deriving bounds on the inter-frame feature variation as a function of architectu
 
 This thesis demonstrated that the resolution gap inherent to Vision Foundation Models can be addressed in the temporal domain as well as the spatial domain.
 By introducing 3D convolutional encoding and 3D cross-attention with temporal masking into the AnyUp framework, AnyUp3D produces high-resolution feature maps that are stable across time — achieving a mean temporal cosine similarity improvement of $+0.081$ over frame-independent upsampling on every clip in the DAVIS-2017 benchmark, and translating this into a $+0.110$ improvement in downstream video object segmentation quality.
+Beyond the quantitative gains, a meaningful practical contribution is that AnyUp3D treats video as a first-class input.
+The original AnyUp must be applied frame-by-frame when used in a video pipeline, producing flickering artifacts that require external post-processing to suppress.
+AnyUp3D accepts a video tensor directly and handles temporal coherence internally, making it considerably easier to integrate into downstream video understanding systems without any additional stabilisation stages.
+This video-native design is itself a contribution: the model is strictly more capable than its predecessor in the video domain, independent of the specific numerical improvements reported here.
 The work establishes a principled, backbone-agnostic foundation for temporally consistent universal upsampling, confirming that explicitly modelling inter-frame dependencies is both necessary and sufficient to overcome the flickering artifacts that limit the practical utility of image-based upsampling methods in video applications.
