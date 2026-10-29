@@ -4,6 +4,7 @@
 |---|---|
 | Task ID | TNN |
 | Plan | PX <plan name> (`plan.md`), Phase <x.y> |
+| Branch | <git branch for this task> |
 | Status | Q&A |
 | Depends on | — |
 | Blocks | — |

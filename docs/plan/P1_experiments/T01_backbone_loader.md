@@ -4,7 +4,8 @@
 |---|---|
 | Task ID | T01 |
 | Plan | P1 Experiments (`plan.md`), Phase A.1 |
-| Status | in progress (code written, waiting for the Colab check) |
+| Branch | `experiments-backbone-loader` |
+| Status | done (2026-10-30) |
 | Depends on | — |
 | Blocks | T02 Video reader, T03 Upsampler wrapper, A.3–A.5 |
 
@@ -139,6 +140,43 @@ _Updated live during implementation. Per step: what changed, files touched, test
 - New file `tests/T01_backbone_loader_check.ipynb`. It uses the first DAVIS-2017 val clip, with Exp 2 sampling (16 linspace frames) and Exp 3 sampling (every 12th frame).
 - Exact-check tolerance: max abs diff < 1e-3 and worst-frame cosine > 0.99999. This allows for CPU vs GPU normalization arithmetic and cuDNN nondeterminism.
 - Checks: shapes / meta / frame_index / guide norm for all adapters, including videomae `guide_size=56`, VideoMAE rejecting T≠16, Swin clip mode with odd T=5 → 3, and DINOv2 with T=1 and T=5; VideoMAE vs Exp 2 (a)/(b) plus guide vs Exp 2 guides; Swin per-frame vs Exp 3 (a)/(b), plus kinetics-vs-imagenet diff (info only); DINOv2 weights equal timm `pretrained=True` and differ from `pretrained=False`, plus a flip-vs-noise sanity check.
-- The notebook clones the `3Dconv` branch from GitHub, so the new code must be pushed before running.
+- The notebook clones from GitHub, so the new code must be pushed before running. ~~Branch `3Dconv`~~ → changed to **`experiments-backbone-loader`** (see the fix below).
 - You confirmed the local experiment notebooks (`results/exp*.ipynb`) are up to date, so the Exp 2/3 code copied into the check notebook is the current reference.
 - You commit and push. Next: run `tests/T01_backbone_loader_check.ipynb` on Colab (GPU), paste back the Summary cell output, and log the results here as Step 3.
+
+### Fix: check notebook branch (2026-10-30)
+
+- First Colab run failed: `ModuleNotFoundError: No module named 'anyup.backbones'`. Cause: commit `7d58f63` was pushed to the branch `experiments-backbone-loader`, but the notebook cloned `3Dconv`, and with an existing `/content/anyup` it only ran `git pull` on the current branch.
+- Changed Cell 1 of `tests/T01_backbone_loader_check.ipynb`: `REPO_BRANCH = "experiments-backbone-loader"`; for an existing clone it now runs `fetch` + `checkout -B <branch> origin/<branch>`; it raises if `anyup` is already imported (the runtime must be restarted).
+
+### Step 3: Colab check results (2026-10-30)
+
+Environment: torch 2.11.0+cu130, torchvision 0.26.0+cu130, transformers 5.20.2, timm 1.0.30, Tesla T4. Clip: `bike-packing`. **16 checks, 0 failed.**
+
+| Check | Result |
+|---|---|
+| videomae T=16 | features (8, 768, 14, 14), guide (8, 3, 224, 224), frame_index [0, 2, …, 14]: PASS |
+| videomae guide_size=56 | guide (8, 3, 56, 56): PASS |
+| videomae rejects T≠16 | ValueError raised: PASS |
+| swin_t per_frame T=5 | (5, 768, 7, 7), frame_index [0..4]: PASS |
+| swin_t clip T=5 | (3, 768, 7, 7), frame_index [0, 2, 4]: PASS |
+| dinov2 T=1 / T=5 | (1, 768, 16, 16) / (5, 768, 16, 16): PASS |
+| videomae vs Exp 2 (a) exact | max_abs 0.0: PASS |
+| videomae guide vs Exp 2 guides | max_abs 0.0: PASS |
+| swin_t per_frame vs Exp 3 (a) exact, norm=imagenet | max_abs 0.0: PASS (confirms calling `patch_embed → features → norm` directly = Exp 3's hook) |
+| dinov2 weights == timm pretrained=True | 174 tensors equal: PASS; differ from random init: PASS |
+| dinov2 sanity | cos(img, flip) 0.9689 vs cos(img, noise) −0.0013: PASS |
+| videomae (b) full path, tensor vs PIL resize | INFO: max_abs 0.31, min_cos 0.99988 |
+| swin_t (b) full path, tensor vs PIL resize | INFO: max_abs 1.39, min_cos 0.9935 |
+| swin_t kinetics vs imagenet norm | INFO: max_abs 2.16, min_cos 0.9726 |
+
+Notes:
+- The new path reproduces the old Exp 2 / Exp 3 features **bit-exactly** when given the same resized input.
+- The resize method alone changes features slightly (Swin-T cos 0.9935, more sensitive than VideoMAE 0.99988). That's not a bug, but it is one more expected source of difference vs the thesis numbers in Phase B, alongside the Kinetics norm (cos 0.9726), the normalized guide, `window_t`, and using all frames.
+
+## Final Summary
+
+- Delivered `anyup/backbones.py` (`BackboneLoader` + `videomae`, `swin_t`, `dinov2` adapters) and `tests/T01_backbone_loader_check.ipynb`.
+- Differences from the original plan: the Swin input norm became Kinetics by default (Q14); Swin features are computed via direct layer calls instead of a hook (verified identical); the check notebook uses the branch `experiments-backbone-loader`.
+- Not done here (by design): video reading/chunking (T02), upsamplers (T03), notebook refactor (after T03).
+

@@ -57,7 +57,7 @@ The experiments were built separately during the thesis. Backbone loading, model
 
 ### Phase B: Re-verify the thesis results
 
-- Re-run Exp 1–4 on the shared foundation and confirm the numbers match the thesis, or explain the differences. Expected differences: Exp 1 (`window_t` 3→4, ckpt step500→canonical, DINOv2 via timm wrapper instead of HF), Exp 3 (normalized guide), and Exp 2/3 (all frames instead of 16-linspace / every-12th, decided in T02). So Exp 2/3 thesis numbers won't be reproduced exactly; the new numbers replace them.
+- Re-run Exp 1–4 on the shared foundation and confirm the numbers match the thesis, or explain the differences. Expected differences: resize method (tensor vs PIL, Swin-T feature cos ≈ 0.993; measured in T01), Swin-T Kinetics input norm (cos ≈ 0.973), Exp 1 (`window_t` 3→4, ckpt step500→canonical, DINOv2 via timm wrapper instead of HF), Exp 3 (normalized guide), and Exp 2/3 (all frames instead of 16-linspace / every-12th, decided in T02). So Exp 2/3 thesis numbers won't be reproduced exactly; the new numbers replace them.
 - Resolve the open checkpoint question (step6500 vs step6000) and fix one canonical checkpoint for the paper.
 
 ### Phase C: Strengthen the experiments for publication
@@ -86,7 +86,7 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 
 | ID | Task | Phase | Status | File |
 |---|---|---|---|---|
-| T01 | Unified `BackboneLoader` | A.1 | in progress | `T01_backbone_loader.md` |
+| T01 | Unified `BackboneLoader` | A.1 | done | `T01_backbone_loader.md` |
 | T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | Q&A (partial) | `T02_video_reader.md` |
 | T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | not yet created | — |
 | — | Refactor experiment notebooks to use shared backbones + upsamplers | A.2+ | not yet created | — |

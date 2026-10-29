@@ -58,6 +58,7 @@ docs/
 - **Tasks** are numbered `T01, T02, ...` **globally** (never reused, P2 continues from the last P1 number). File name: `TNN_<snake_case_name>.md`.
 - **Status** values: `todo` → `Q&A` → `in progress` → `done` (or `blocked`). Keep the task file and the plan's Task Index in sync.
 - `docs/colab_training_guide.md` and `docs/training_guide.md` are older reference guides, not part of the plan.
+- **One git branch per task.** I create, commit, push and merge the branch myself. Its name goes in the task file's `Branch` field. Colab check notebooks clone that branch (`REPO_BRANCH`) and must switch an existing `/content/anyup` clone to it (fetch + checkout), not just `git pull`. You don't commit; you tell me what to commit when the changes are done.
 
 ## Writing Style (paper and reports)
 
@@ -74,4 +75,4 @@ The files below are loaded automatically. **To switch context, edit these lines.
 
 @docs/context/project_context.md
 @docs/plan/P1_experiments/plan.md
-@docs/plan/P1_experiments/T01_backbone_loader.md
+@docs/plan/P1_experiments/T02_video_reader.md

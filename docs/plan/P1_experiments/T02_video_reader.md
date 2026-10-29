@@ -4,6 +4,7 @@
 |---|---|
 | Task ID | T02 |
 | Plan | P1 Experiments (`plan.md`), Phase A.1/A.3 |
+| Branch | TBD (you create it) |
 | Status | Q&A (partial; more questions to ask before implementing) |
 | Depends on | T01 (backbone adapters) |
 | Blocks | T03 Upsampler wrapper, notebook refactor |
