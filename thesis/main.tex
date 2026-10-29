@@ -1,36 +1,32 @@
+% !TeX program = xelatex
 \documentclass[12pt, a4paper]{report}
 
-% --- Packages ---
-\usepackage{iftex}
-\ifPDFTeX
-\usepackage[utf8]{inputenc}
-\usepackage{newtxtext,newtxmath}
-\else
+% Packages 
+\usepackage{ragged2e}
 \usepackage{fontspec}
 \usepackage{unicode-math}
+\usepackage{polyglossia}
+\setdefaultlanguage{english}
+\setotherlanguage{arabic}
 \setmainfont{Times New Roman}
 \setsansfont{Times New Roman}
 \setmonofont{Courier New}
 \setmathfont{TeX Gyre Termes Math}
-\fi
+\newfontfamily\arabicfont[Script=Arabic]{Times New Roman}
 \usepackage{graphicx}
 \usepackage{geometry}
 \usepackage{setspace}
-\usepackage{titlesec}
 \usepackage{cite}
 \usepackage{url}
-\usepackage{caption}
 \usepackage{booktabs}
+\usepackage{longtable}
 \usepackage{xcolor}
 \usepackage{tikz}
-\ifPDFTeX
-\usepackage{amsmath}
-\fi
-\newcommand{\safeincludegraphics}[2][]{%
-    \IfFileExists{#2}{\includegraphics[#1]{#2}}{%
+\newcommand{\safeincludegraphics}[2][]{
+    \IfFileExists{#2}{\includegraphics[#1]{#2}}{
         \fbox{\parbox[c][0.25\textheight][c]{0.9\linewidth}{\centering
         Placeholder figure omitted: \texttt{\detokenize{#2}}}}%
-    }%
+    }
 }
 \newif\ifshownotes
 % \shownotestrue % preview/draft
@@ -47,26 +43,53 @@
     includeheadfoot
 }
 
-% --- Guidelines: Spacing ---
-% "The entire text should be single-spaced, or one-half spaced."
+% -- Guidelines: Spacing --
+% The entire text should be single-spaced, or one-half spaced.
 \onehalfspacing
 \emergencystretch=3em
 \hbadness=10000
 
-% Chapter Headings
-% "Chapter Headings and title are all capital letters and centered."
+% Chapter Headings:
+
+% Chapter Headings and title are all capital letters and centered.
 % "1" margin on the top\ldots except for the first page of each new chapter\ldots which needs to have a 2" top margin."
+
 \usetikzlibrary{shapes.geometric,shapes.misc,arrows.meta,positioning,fit,backgrounds,calc,decorations.pathreplacing}
-\titleformat{\chapter}[display]
-  {\normalfont\large\bfseries\centering}
-  {\chaptertitlename\ \thechapter}
-  {20pt}
-  {\Large\MakeUppercase}
+\makeatletter
+\AddToHook{begindocument/end}{%
+  \renewcommand{\@makechapterhead}[1]{%
+    \vspace*{1in}%
+    \noindent\hbox to \textwidth{\hfil
+      \normalfont\large\bfseries\@chapapp\ \thechapter
+    \hfil}\par
+    \vspace{20pt}%
+    \noindent\vbox{%
+      \hsize=\textwidth
+      \parindent=0pt
+      \leftskip=0pt plus 1fil
+      \rightskip=0pt plus 1fil
+      \parfillskip=0pt
+      \normalfont\Large\bfseries\MakeUppercase{#1}\par
+    }%
+    \vspace{40pt}%
+  }%
+  \renewcommand{\@makeschapterhead}[1]{%
+    \vspace*{1in}%
+    \noindent\vbox{%
+      \hsize=\textwidth
+      \parindent=0pt
+      \leftskip=0pt plus 1fil
+      \rightskip=0pt plus 1fil
+      \parfillskip=0pt
+      \normalfont\Large\bfseries\MakeUppercase{#1}\par
+    }%
+    \vspace{40pt}%
+  }%
+}
+\makeatother
 
-\titlespacing*{\chapter}{0pt}{1in}{40pt} % Adds extra top spacing to simulate 2" margin
-
-% --- Document Info ---
-\title{Enhancing universal feature upsampling SOTA models}
+% -- Document Info --
+\title{AnyUp3D: A Temporally Consistent Universal Feature Upsampler for Video Models}
 \author{Monzir Hafez \and Muaaz Abdelmunem}
 \date{January 2026}
 
@@ -79,22 +102,46 @@
 \pagenumbering{roman}
 \setcounter{page}{2} % Title page is counted as i but hidden
 
-% Dedication
 \chapter*{DEDICATION}
 \addcontentsline{toc}{chapter}{DEDICATION}
-To our families\ldots
+\input{dedication}
+
+
 
 % Acknowledgment
 \chapter*{ACKNOWLEDGMENT}
 \addcontentsline{toc}{chapter}{ACKNOWLEDGMENT}
-We would like to thank our supervisor Dr.\ Magdy Alamin\ldots
+\begin{center}
+We would like to express our deepest gratitude to Dr. Magdi Amien for staying by our side throughout this journey and for helping us tirelessly whenever we needed him. We are truly grateful for his genuine kindness and his sincere desire to see us succeed, as well as for the valuable advice and constructive criticism he generously offered whenever we needed guidance.
+
+We would also like to express our heartfelt gratitude to our dear seniors, Obada, Ghalib, Wais, Kabbashi, and everyone who stood by us during times of uncertainty, guided us through the early stages of this journey, and helped us take our first steps toward bringing this project to life.
+\end{center}
+
+
+
+% Abstract (Arabic)
+\begingroup
+
+\begin{Arabic}
+\chapter*{المستخلص}
+\justifying
+
+\input{abstract_ar}
+
+
+\end{Arabic}
+
+
+\endgroup
 
 % Abstract (English)
 \chapter*{ABSTRACT}
 \input{abstract_en}
+\addcontentsline{toc}{chapter}{ABSTRACT}
 
 % Table of Contents
 \tableofcontents
+\addcontentsline{toc}{chapter}{CONTENTS}
 
 % List of Tables
 \listoftables
@@ -110,15 +157,26 @@ We would like to thank our supervisor Dr.\ Magdy Alamin\ldots
 \begin{tabular}{ll}
     CNN & Convolutional Neural Network \\
     DAVIS & Densely Annotated Video Segmentation \\
-    GPU & Graphics Processing Unit \\
     mIoU & Mean Intersection over Union \\
-    RGB & Red, Green, Blue \\
     SAM & Segment Anything Model \\
     SOTA & State-of-the-Art \\
     VFM & Vision Foundation Model \\
     ViT & Vision Transformer \\
     VOS & Video Object Segmentation \\
     3D Conv & 3D Convolution \\
+    HR & High-Resolution \\
+    INR & Implicit Neural Representations \\
+    LFU3D & Learned Feature Unification (3D) \\
+    LR & Low-Resolution \\
+    MLP & Multi-Layer Perceptron \\
+    MOT & Multi-Object Tracking \\
+    NeRF & Neural Radiance Fields \\
+    RoPE & Rotary Position Embedding \\
+    RoPE3D & 3D Rotary Positional Encoding \\
+    LiDAR & Light Detection and Ranging \\
+    PCA & Principal Component Analysis \\
+    VRAM & Video Random Access Memory \\
+    
 \end{tabular}
 
 % --- Main Content (Arabic Numerals) ---
@@ -133,7 +191,9 @@ We would like to thank our supervisor Dr.\ Magdy Alamin\ldots
 
 % References
 % Guidelines: "Double spacing should follow chapter numbers\ldots and References"
+\renewcommand{\bibname}{REFERENCES}
 \bibliographystyle{IEEEtran}
 \bibliography{references}
+\addcontentsline{toc}{chapter}{REFERENCES}
 
 \end{document}
