@@ -4,8 +4,8 @@
 |---|---|
 | Task ID | T02 |
 | Plan | P1 Experiments (`plan.md`), Phase A.1/A.3 |
-| Branch | TBD (you create it) |
-| Status | Q&A (partial; more questions to ask before implementing) |
+| Branch | `experiments-task02` |
+| Status | in progress (steps 1–3 written; pytest pending on Colab) |
 | Depends on | T01 (backbone adapters) |
 | Blocks | T03 Upsampler wrapper, notebook refactor |
 
@@ -15,8 +15,8 @@ A helper that takes any video (any resolution, any frame rate) and runs a backbo
 
 ## Scope
 
-- In scope: reading a video into [0,1] frame chunks, splitting it into chunks per backbone, handling the last chunk, and yielding `BackboneOutput` per chunk with global frame indices.
-- Out of scope: the backbone adapters themselves (T01), upsampling (T03).
+- In scope: reading a video (JPEG frame folder, video file, or in-memory tensor) into [0,1] frame chunks; splitting it into fixed-size chunks per backbone, with optional overlap (default 0); handling the last chunk; yielding one `BackboneOutput` per chunk with global frame indices and chunk metadata. Also fixing the AnyUp3D chunk policy (1 backbone chunk = 1 AnyUp3D call), which T03 implements.
+- Out of scope: the backbone adapters themselves (T01); the upsampler call (T03); DAVIS annotation loading (shared DAVIS utilities task); fps resampling (we always use native frames).
 
 ## Q&A (decisions agreed before implementation)
 
@@ -26,25 +26,135 @@ A helper that takes any video (any resolution, any frame rate) and runs a backbo
 | 2 | Frame use relative to the old Exp 2 (16 linspace) / Exp 3 (every 12th) protocols? | **Always all frames.** No skipping anywhere. Exp 2/3 are redefined on all frames, so the thesis numbers can't be reproduced exactly (logged in `plan.md`). |
 | 3 | VideoMAE last chunk when the length isn't a multiple of 16? | **Pad with the last frame** up to 16, then drop the outputs of the padded frames. |
 | 4 | Return type for long videos? | **Iterator of chunks:** yields one `BackboneOutput` per chunk, with global frame indices in `meta`. |
-
-_Still to ask when T02 starts:_ input sources (video files / frame folders / tensors) and the decoding library; aspect ratio vs fixed square input; chunk size and overlap for per-frame backbones; how padded/dropped frames show up in `meta`; how short videos (< 1 chunk) are handled; how this interacts with AnyUp3D's temporal context across chunk boundaries (T03).
+| 5 | Input sources? | **JPEG frame folders + video files + in-memory tensors**, all behind one source interface. |
+| 6 | Decoding library for video files? | **decord, with torchvision.io fallback** (same as training, `anyup/data/video_dataset.py`). decord gives lazy per-chunk access; the torchvision fallback loads the whole video into memory (logged as a warning). |
+| 7 | Aspect ratio? | **Squash to square** (as in Exp 2/3 and training). Done by the adapters' existing resize. Native `(H, W)` goes into `meta` so masks can be mapped back. |
+| 8 | Chunk size for per-frame backbones (DINOv2, Swin per-frame, Swin clip)? | **Configurable kwarg, default 16.** VideoMAE is fixed at 16 (position embeddings). |
+| 9 | Chunk overlap? | **Configurable `overlap` kwarg, default 0** (no overlap). Not fixed now; to be chosen by experiments (possibly as a hyperparameter / ablation). Chunk-boundary indices go in `meta` so Exp 2 can report the score with and without boundary pairs. _(Changed: was "no overlap", see Log.)_ |
+| 10 | Videos shorter than one chunk? | **VideoMAE: raise an error when T < 16.** Per-frame backbones accept any T ≥ 1 as one short chunk (no padding). |
+| 11 | How padding shows up in the output? | **Trimmed + meta counts.** Padded outputs are already dropped; `meta` adds `chunk_id`, global `frame_index`, `n_pad`, `is_last`, `n_frames_total`, `native_size`. |
+| 12 | AnyUp3D temporal context across chunk boundaries: whose job? | **Decided in T02.** |
+| 13 | AnyUp3D chunk policy? | **1 backbone chunk = 1 AnyUp3D call**, no context across boundaries. VideoMAE → 8 feature frames per call (matches training, `train_3d.py:218-219`). Boundaries logged in `meta`. T03 implements the call. |
+| 14 | Per-frame backbones give AnyUp3D 16 feature frames per call (training used 8). OK? | **Keep 16.** More temporal context; out of training distribution and more memory (note for Phase B / ablations). |
+| 15 | With overlap > 0, which outputs are kept for overlapped frames? | **Earlier chunk wins.** Each later chunk drops its first `overlap` input frames' outputs (= `overlap / temporal_stride` feature frames). The overlap only gives left context to the later chunk's backbone pass. |
+| 16 | Does the overlap also apply to AnyUp3D? | **Yes, same chunks** (one `overlap` value; keeps the 1:1 policy of Q13). |
+| 17 | Odd overlap with tubelet 2? | **Must be a multiple of `temporal_stride`**, else `ValueError` (VideoMAE, Swin clip: even only). Also `0 ≤ overlap < chunk_size`. |
+| 18 | Where are the overlap outputs dropped? | **In T02, before AnyUp3D.** Only the backbone sees the context; AnyUp3D gets the trimmed chunk, so its calls have no context across boundaries, and with overlap > 0 non-first chunks give AnyUp3D `(chunk_size − overlap) / temporal_stride` feature frames (VideoMAE: fewer than training's 8). |
+| 19 | How to run the pytest (no torch on the local machine)? | **On Colab.** You run `python -m pytest tests/test_video_reader.py -v` and paste the output. |
 
 ## Design
 
-_To be written after the Q&A is complete._
+### Files
+
+- New: `anyup/video.py` (sources + chunk runner).
+- New: `tests/test_video_reader.py` (local pytest; uses a fake adapter, no downloads).
+- New: `tests/T02_video_reader_check.ipynb` (Colab; real backbones on DAVIS + one UCF-101 video).
+- No change to `anyup/backbones.py`.
+
+### API
+
+```python
+from anyup.backbones import BackboneLoader
+from anyup.video import open_video, iter_backbone_chunks
+
+src = open_video(".../JPEGImages/480p/bear")   # folder | video file path | (T,3,H,W) tensor
+len(src), src.native_size, src.fps             # n frames, (H, W), fps or None for folders/tensors
+
+bb = BackboneLoader.load("videomae", device="cuda")
+for out in iter_backbone_chunks(bb, src, chunk_size=None, overlap=0):   # None → backbone default (16); overlap in input frames
+    out.features   # (t_out, C, h, w)    padded outputs already dropped
+    out.guide      # (t_out, 3, gH, gW)
+    out.meta       # T01 keys + chunk keys (below)
+```
+
+### Sources (`anyup/video.py`)
+
+Common interface: `__len__()`, `native_size -> (H, W)`, `fps -> float | None`, `get(indices: list[int]) -> (n, 3, H, W) float32 [0,1]` (CPU).
+
+| Class | Input | Reading |
+|---|---|---|
+| `FrameFolderSource` | dir of `*.jpg` (configurable ext) | `sorted(glob)`, PIL `convert("RGB")` → tensor / 255. Same ordering as Exp 2/3. |
+| `VideoFileSource` | mp4/avi/... | `decord.VideoReader(...).get_batch(indices)` per chunk. If decord fails: `torchvision.io.read_video` once (whole video in memory, warning). |
+| `TensorSource` | `(T, 3, H, W)` float [0,1] or uint8 | slicing; uint8 → /255. |
+
+`open_video(x)` dispatches: tensor → `TensorSource`; dir → `FrameFolderSource`; file → `VideoFileSource`.
+
+### Chunk runner
+
+```
+iter_backbone_chunks(bb, src, chunk_size=None, overlap=0):
+  N = len(src)
+  chunk_size = bb.NUM_FRAMES if VideoMAE (must equal 16 if given) else (chunk_size or 16)
+  check 0 <= overlap < chunk_size and overlap % bb.temporal_stride == 0, else ValueError
+  if VideoMAE and N < 16: raise ValueError
+  step = chunk_size - overlap
+  starts = [0, step, 2*step, ...] while the previous chunk's end < N   # no chunk made only of context frames
+  for chunk_id, start in enumerate(starts):
+      idx = list(range(start, min(start + chunk_size, N)))          # global indices, n_valid = len(idx)
+      n_ctx = 0 if chunk_id == 0 else overlap                       # leading frames already output by the previous chunk
+      n_pad = (16 - n_valid) if VideoMAE else 0
+      frames = src.get(idx + [idx[-1]] * n_pad)                     # (n_valid + n_pad, 3, H, W)
+      out = bb(frames)
+      keep = [k for k, f in enumerate(out.meta["frame_index"])
+              if n_ctx <= f < n_valid]                              # drop context (earlier chunk wins) and padded outputs
+      out.features, out.guide = out.features[keep], out.guide[keep]
+      meta += chunk_id, chunk_start=start, overlap, n_ctx, n_valid, n_pad, is_last,
+              frame_index = [start + f for kept f]   (global),
+              local_frame_index (original T01 value, kept),
+              t_out = len(keep), n_frames_total=N, native_size, fps, source (path or "tensor")
+      yield out
+```
+
+- VideoMAE padded tubelets: a tubelet is kept if its first frame is a real frame (e.g. 15 valid → tubelet (14, 15-pad) is kept; its guide is frame 14).
+- Swin `clip` mode: odd last chunk is handled natively by the adapter (`ceil(T/2)`), no padding.
+- Overlap: `n_ctx` is a multiple of `temporal_stride`, so context tubelets align with the previous chunk's tubelets and every frame is output exactly once (earlier chunk wins). The context only affects the later chunk's backbone pass; AnyUp3D (T03) sees the trimmed chunk (Q18).
+- Chunk boundaries: each chunk's `meta["chunk_start"]` gives them; a helper `chunk_boundaries(metas) -> list[int]` returns the global feature-frame indices where a new chunk starts (for Exp 2 with/without boundary pairs).
+- AnyUp3D (T03): called once per yielded chunk on `(features, guide)` exactly as yielded (context already dropped); no cross-chunk context for AnyUp3D.
+
+### Compute-cost lines
+
+- `chunk_size` (default 16) sets backbone batch size and the AnyUp3D T per call → memory. Dependent: VideoMAE must stay 16 (`VideoMAEAdapter.NUM_FRAMES`); T03 `q_chunk_size` must shrink if chunk_size grows; `overlap` must stay < chunk_size.
+- `overlap` (default 0) sets backbone compute: about `chunk_size / (chunk_size − overlap)` × the no-overlap cost. Dependent: must be < `chunk_size` and a multiple of `temporal_stride`; reduces AnyUp3D T per non-first chunk.
 
 ## Steps
 
-_To be written._
+1. Implement sources + `open_video` in `anyup/video.py`.
+2. Implement `iter_backbone_chunks` + `chunk_boundaries`.
+3. Pytest `tests/test_video_reader.py` with a fake adapter (stride 1 and stride 2, fixed-T 16) on synthetic tensors; run on Colab (no torch locally), you paste the output.
+4. Colab notebook `tests/T02_video_reader_check.ipynb` (clones `experiments-task02`, fetch + checkout). You run it and paste back the output; I log it.
+5. Update `plan.md` Task Index and this file. Close out.
 
 ## Tests / Regression Checks
 
-_To be written._
+pytest (fake adapter, CPU; run on Colab, Q19):
+- Every frame covered exactly once: concatenated global `frame_index` = `range(N)` (stride 1) or `range(0, …)` per chunk with stride 2, for N ∈ {1, 15, 16, 17, 33, 48}.
+- VideoMAE-like fixed-16: N=33 → chunks of 16, 16, 1+15 pad; last chunk `t_out=1`, `n_pad=15`; N<16 raises.
+- Overlap: for overlap ∈ {0, 2, 4, 8} (stride 1 and 2), every frame is output exactly once, outputs of frame f come from the earliest chunk containing it, `n_ctx` correct; odd overlap with stride 2 and overlap ≥ chunk_size raise.
+- `TensorSource` / `FrameFolderSource` (JPEGs written to a tmp dir) give identical frames (PNG for lossless check, or JPEG vs PIL-decoded reference, diff = 0).
+
+Colab (real backbones):
+- **Chunked = direct (exact):** for a 16-frame DAVIS clip, `iter_backbone_chunks` output equals `bb(frames)` (max abs diff = 0) for all three backbones.
+- **Per-frame chunk invariance:** DINOv2 / Swin per-frame, chunk 16 vs chunk 4 on the same clip: concatenated features match (max abs diff reported; ≈ 0 up to batch nondeterminism).
+- **Overlap = 0 is the default path:** `overlap=0` output equals the no-overlap output exactly. With VideoMAE overlap 4 on a full clip: shapes, global indices, and cosine to the overlap-0 features reported (expected < 1, not a pass/fail check).
+- **Folder reader vs Exp 2/3 loader:** same JPEG list and same [0,1] pixels as the old `sorted(glob("*.jpg"))` + PIL path (diff = 0).
+- **Video file:** one UCF-101 `.avi`: frame count from decord = torchvision fallback; pixel diff between the two decoders reported.
+- Full DAVIS clip (e.g. `bear`, 82 frames) with VideoMAE: shapes per chunk, last-chunk padding, peak GPU memory constant across chunks.
 
 ## Done When
 
-_To be written._
+- `anyup/video.py` exists; `open_video` handles folders, video files and tensors.
+- `iter_backbone_chunks` processes every frame once (for any valid `overlap`), pads/drops VideoMAE's last chunk, drops overlap context (earlier chunk wins), and puts global indices + chunk meta on every output.
+- Local pytest passes; Colab check passes (chunked = direct exactly, reader = old loader exactly).
 
 ## Implementation Log
 
 _Updated live during implementation. Per step: what changed, files touched, test results (actual numbers/shapes). Also log mid-implementation questions and answers, changed decisions (old → new, why), and anything added or removed. Sections above are edited in place to match, so the finished file is a report of what was actually done._
+
+- **Q&A change (before implementation):** Q9 changed from "no overlap" → "configurable `overlap` kwarg, default 0". Why: the overlap should be decided by experiments, not fixed now (possibly a hyperparameter). Added Q15–Q18 (merge rule, AnyUp3D, stride constraint, drop point); Scope, Design, compute-cost lines, Tests and Done When updated to match.
+- **Steps 1–2 (code):** new `anyup/video.py`.
+  - Sources: `VideoSource` base; `TensorSource` (float [0,1] or uint8 → /255); `FrameFolderSource` (`sorted(glob(*ext))`, PIL `.convert("RGB")` → `pil_to_tensor` / 255, same as Exp 2/3); `VideoFileSource` (decord `get_batch` per chunk, `fps = get_avg_fps()`; on any decord error, warns and falls back to `torchvision.io.read_video(output_format="TCHW")`, whole file in memory). `open_video` dispatches tensor / dir / file (warns on unknown extension).
+  - Runner: `iter_backbone_chunks(bb, src, chunk_size=None, overlap=0)`. Fixed-T backbones detected by `bb.NUM_FRAMES` (VideoMAE), no backbone-name checks. Validation errors: fixed-T with other chunk_size, fixed-T with N < 16, `chunk_size < 1`, overlap outside `[0, chunk_size)`, overlap not a multiple of `temporal_stride`. Kept outputs: `n_ctx ≤ local frame_index < n_valid`. Yields a new `BackboneOutput`; T01 meta kept, `frame_index` replaced by global indices, `t_out` updated, added `local_frame_index, chunk_id, chunk_start, chunk_size, overlap, n_ctx, n_valid, n_pad, is_last, n_chunks, n_frames_total, native_size, fps, source`.
+  - Helpers: `chunk_starts(n, chunk_size, overlap)`; `chunk_boundaries(metas)` → positions in the concatenated output where a new chunk starts (excluding 0).
+  - Added beyond the design: `n_chunks`, `chunk_size`, `source` meta keys; `chunk_starts` exposed for testing; `DEFAULT_CHUNK_SIZE = 16` module constant (with compute-cost comment).
+  - Not tested locally: no torch on this machine. `python3 -m py_compile` passes for both files.
+- **Step 3 (tests):** new `tests/test_video_reader.py`, fake adapters (`FakeAdapter` stride 1/2, `FakeFixed16` VideoMAE-like). Synthetic frame k = k/1000 everywhere, so each output's feature value identifies its source frame. Covers: coverage for N ∈ {1, 15, 16, 17, 33, 48} × stride {1, 2} × overlap {0, 2, 4, 8}; fixed-16 coverage for N ∈ {16, 17, 33, 48, 82}; earlier-chunk-wins (N=20, chunk 8, overlap 4 → starts 0/4/8/12); overlap 0 = plain chunking; padding (N=33 → n_pad 15, t_out 8/8/1; N=31 → tubelet (30, pad) kept); all error paths; default chunk size and short video; `chunk_boundaries` (N=33 → [8, 16]); meta values; sources (uint8/float tensor, PNG folder = tensor with diff 0, sorted order, open_video errors). Video-file decoding is not in pytest (needs decord + a real file); it's in the Colab notebook (step 4). **Result: pending; you run it on Colab.**

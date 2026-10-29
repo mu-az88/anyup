@@ -87,7 +87,7 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | ID | Task | Phase | Status | File |
 |---|---|---|---|---|
 | T01 | Unified `BackboneLoader` | A.1 | done | `T01_backbone_loader.md` |
-| T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | Q&A (partial) | `T02_video_reader.md` |
+| T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | in progress | `T02_video_reader.md` |
 | T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | not yet created | — |
 | — | Refactor experiment notebooks to use shared backbones + upsamplers | A.2+ | not yet created | — |
 | — | Shared DAVIS data utilities | A.3 | not yet created | — |
