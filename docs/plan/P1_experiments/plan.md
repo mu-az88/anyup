@@ -11,8 +11,9 @@
 
 | # | What it measures | Thesis result |
 |---|---|---|
-| Exp 1 | Cosine fidelity of upsampled features | 0.9899 (step 250) → 0.9913 (step 6,000) |
-| Exp 2 | Temporal cosine similarity, 30 DAVIS-2017 clips | +0.081 improvement |
+| Exp 1 | Spatial no-regression check: ADE20K linear-probe mIoU, DINOv2 single images (T=1), bilinear vs AnyUp2D vs AnyUp3D | see notebook results (Drive `exp1_results.json`) |
+| (fidelity) | Cosine fidelity of upsampled features (source notebook unconfirmed, see Open Questions) | 0.9899 (step 250) → 0.9913 (step 6,000) |
+| Exp 2 | Adjacent-frame temporal cosine similarity, 30 DAVIS-2017 clips, VideoMAE, AnyUp2D vs AnyUp3D | +0.081 improvement |
 | Exp 3 | Video object segmentation via non-parametric label propagation (DAVIS-2017), zero-shot on Video Swin-T | Weighted J&F 0.266 → 0.347 (+0.081); 27/30 clips improved; the boundary gain (𝓕) is about 2× the region gain (𝓙) |
 | Exp 4 | Efficiency | 1,540,736 params (5.88 MB), +75.5% vs AnyUp2D; about 2.7× slower and about 10.5× more memory |
 
@@ -23,6 +24,22 @@
 - **Exp 3:** low absolute J&F is expected. Frame it as a **lower bound**, not a weakness. Swin-T is a deliberate zero-shot universality test.
 - A sign-test p-value is available (p ≈ 9.3×10⁻¹⁰ for a 30/30 result). **Check which result this refers to,** since Exp 3 reports 27/30.
 - SAM 2 appears in the literature review as a key baseline but was never evaluated. Either address it or remove it.
+
+## Issues Found in the Existing Experiments (from T01 review)
+
+- Exp 1 ran with `window_t=3` (training used 4) and the `step500` checkpoint. **Must be re-run in Phase B.**
+- Exp 3 fed raw [0,1] guides; training uses ImageNet-normalized guides. **Re-run in Phase B with normalized guides; the J&F numbers may change.**
+- AnyUp3D was trained on VideoMAE features only, so DINOv2 and Swin-T results are zero-shot.
+
+## Open Questions
+
+_Not needed for T01/T02; parked for later._
+
+- Which notebook produced the cosine fidelity numbers (0.9899 → 0.9913)? Likely `results/VideoMAE features visualization exp/` (250 / 6000 steps). Unconfirmed.
+- Where is the Exp 4 (efficiency) notebook? It's not in the repo.
+- Canonical checkpoint: step6000 or step6500?
+- Sign-test p-value (30/30) vs Exp 3's 27/30: which result does it belong to?
+- SAM 2: evaluate it or remove it.
 
 ## The Problem to Fix
 
@@ -40,7 +57,7 @@ The experiments were built separately during the thesis. Backbone loading, model
 
 ### Phase B: Re-verify the thesis results
 
-- Re-run Exp 1–4 on the shared foundation and confirm the numbers match the thesis, or explain the differences.
+- Re-run Exp 1–4 on the shared foundation and confirm the numbers match the thesis, or explain the differences. Expected differences: Exp 1 (`window_t` 3→4, ckpt step500→canonical, DINOv2 via timm wrapper instead of HF), Exp 3 (normalized guide), and Exp 2/3 (all frames instead of 16-linspace / every-12th, decided in T02). So Exp 2/3 thesis numbers won't be reproduced exactly; the new numbers replace them.
 - Resolve the open checkpoint question (step6500 vs step6000) and fix one canonical checkpoint for the paper.
 
 ### Phase C: Strengthen the experiments for publication
@@ -69,8 +86,10 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 
 | ID | Task | Phase | Status | File |
 |---|---|---|---|---|
-| T01 | Unified `BackboneLoader` | A.1 | todo | `T01_backbone_loader.md` |
-| — | Unified `Upsampler` wrapper | A.2 | not yet created | — |
+| T01 | Unified `BackboneLoader` | A.1 | in progress | `T01_backbone_loader.md` |
+| T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | Q&A (partial) | `T02_video_reader.md` |
+| T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | not yet created | — |
+| — | Refactor experiment notebooks to use shared backbones + upsamplers | A.2+ | not yet created | — |
 | — | Shared DAVIS data utilities | A.3 | not yet created | — |
 | — | Shared metrics module | A.4 | not yet created | — |
 | — | Reproducibility (seeds, configs, results on disk) | A.5 | not yet created | — |

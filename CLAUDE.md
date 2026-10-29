@@ -32,6 +32,13 @@ The ideal flow for every task:
 3. **Implement** in small steps, test each, and report results with actual numbers or shapes. Ideally no questions are needed here, but if anything unexpected or ambiguous comes up, **stop and ask** — don't guess. Log new answers in the task file.
 4. **Close out.** Update the task's Implementation Log and status (in the task file and the plan's Task Index). Tell me what's left, what's uncertain, and what I need to verify.
 
+**Keep the task file live during implementation.** The task file must always reflect what is *actually* happening, so that when the task is done it is an accurate report of what was really done, not just what was planned:
+
+- **Changed decision** → update the original answer/design in place and note the change in the Implementation Log (old → new, and why).
+- **Added or removed something** (files, functions, steps, tests, scope) → update the relevant section (Scope, Design, Steps, Tests, Done When) and log it.
+- **After each implementation step** → add a log entry: what changed, files touched, test results with actual numbers/shapes.
+- Do this as we go, in the same turn as the change, not in a batch at the end.
+
 ## Docs Structure
 
 ```

@@ -41,4 +41,4 @@ Interfaces, files to create/modify, data flow, shapes.
 
 ## Implementation Log
 
-_Short notes per step: what changed, files touched, test results (actual numbers/shapes). Any mid-implementation questions and their answers go here too._
+_Updated live during implementation. Per step: what changed, files touched, test results (actual numbers/shapes). Also log mid-implementation questions and answers, changed decisions (old → new, why), and anything added or removed. Sections above are edited in place to match, so the finished file is a report of what was actually done._
