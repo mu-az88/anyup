@@ -5,7 +5,7 @@
 | Task ID | T02 |
 | Plan | P1 Experiments (`plan.md`), Phase A.1/A.3 |
 | Branch | `experiments-task02` |
-| Status | in progress (steps 1–3 written; pytest pending on Colab) |
+| Status | in progress (step 4 notebook written; waiting for Colab run) |
 | Depends on | T01 (backbone adapters) |
 | Blocks | T03 Upsampler wrapper, notebook refactor |
 
@@ -41,6 +41,8 @@ A helper that takes any video (any resolution, any frame rate) and runs a backbo
 | 17 | Odd overlap with tubelet 2? | **Must be a multiple of `temporal_stride`**, else `ValueError` (VideoMAE, Swin clip: even only). Also `0 ≤ overlap < chunk_size`. |
 | 18 | Where are the overlap outputs dropped? | **In T02, before AnyUp3D.** Only the backbone sees the context; AnyUp3D gets the trimmed chunk, so its calls have no context across boundaries, and with overlap > 0 non-first chunks give AnyUp3D `(chunk_size − overlap) / temporal_stride` feature frames (VideoMAE: fewer than training's 8). |
 | 19 | How to run the pytest (no torch on the local machine)? | **On Colab.** You run `python -m pytest tests/test_video_reader.py -v` and paste the output. |
+| 20 | DAVIS source for the Colab notebook? | **Always download from ETH** (`DAVIS_URL` in the notebook), not the Drive zip. |
+| 21 | Video file for the decord vs torchvision check? | **Encode DAVIS `bear` (82 frames) to mp4 with ffmpeg** in the notebook (x264, crf 18, 24 fps). No UCF-101 needed. Codec loss vs the JPEGs is reported. |
 
 ## Design
 
@@ -48,7 +50,7 @@ A helper that takes any video (any resolution, any frame rate) and runs a backbo
 
 - New: `anyup/video.py` (sources + chunk runner).
 - New: `tests/test_video_reader.py` (local pytest; uses a fake adapter, no downloads).
-- New: `tests/T02_video_reader_check.ipynb` (Colab; real backbones on DAVIS + one UCF-101 video).
+- New: `tests/T02_video_reader_check.ipynb` (Colab; real backbones on DAVIS `bear` + an mp4 encoded from it).
 - No change to `anyup/backbones.py`.
 
 ### API
@@ -137,8 +139,10 @@ Colab (real backbones):
 - **Per-frame chunk invariance:** DINOv2 / Swin per-frame, chunk 16 vs chunk 4 on the same clip: concatenated features match (max abs diff reported; ≈ 0 up to batch nondeterminism).
 - **Overlap = 0 is the default path:** `overlap=0` output equals the no-overlap output exactly. With VideoMAE overlap 4 on a full clip: shapes, global indices, and cosine to the overlap-0 features reported (expected < 1, not a pass/fail check).
 - **Folder reader vs Exp 2/3 loader:** same JPEG list and same [0,1] pixels as the old `sorted(glob("*.jpg"))` + PIL path (diff = 0).
-- **Video file:** one UCF-101 `.avi`: frame count from decord = torchvision fallback; pixel diff between the two decoders reported.
-- Full DAVIS clip (e.g. `bear`, 82 frames) with VideoMAE: shapes per chunk, last-chunk padding, peak GPU memory constant across chunks.
+- **Chunked = direct** covers `videomae`, `swin_t` per_frame, `swin_t` clip, `dinov2` (`torch.equal`).
+- **Per-frame chunk invariance** also compares chunk 16 against one call on all 82 frames.
+- **Video file:** DAVIS `bear` encoded to mp4 (Q21). decord backend used; torchvision fallback forced by hiding `decord` (`sys.modules["decord"] = None`) gives the warning and the same frame count/size; decord vs torchvision pixel diff and mp4 vs JPEG codec loss reported (INFO); runner on the mp4 with DINOv2 (shapes, `fps`, `source` in meta).
+- Full DAVIS clip (`bear`, 82 frames) with VideoMAE: chunk starts 0/16/…/80, last chunk n_valid 2 / n_pad 14 / t_out 1, global indices = `range(0, 82, 2)`, peak GPU memory per chunk within 10% (`MEM_TOL`), explicit `overlap=0` = default (`torch.equal`), overlap 4 indices + per-frame cosine to overlap 0 (INFO).
 
 ## Done When
 
@@ -157,4 +161,5 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - Helpers: `chunk_starts(n, chunk_size, overlap)`; `chunk_boundaries(metas)` → positions in the concatenated output where a new chunk starts (excluding 0).
   - Added beyond the design: `n_chunks`, `chunk_size`, `source` meta keys; `chunk_starts` exposed for testing; `DEFAULT_CHUNK_SIZE = 16` module constant (with compute-cost comment).
   - Not tested locally: no torch on this machine. `python3 -m py_compile` passes for both files.
-- **Step 3 (tests):** new `tests/test_video_reader.py`, fake adapters (`FakeAdapter` stride 1/2, `FakeFixed16` VideoMAE-like). Synthetic frame k = k/1000 everywhere, so each output's feature value identifies its source frame. Covers: coverage for N ∈ {1, 15, 16, 17, 33, 48} × stride {1, 2} × overlap {0, 2, 4, 8}; fixed-16 coverage for N ∈ {16, 17, 33, 48, 82}; earlier-chunk-wins (N=20, chunk 8, overlap 4 → starts 0/4/8/12); overlap 0 = plain chunking; padding (N=33 → n_pad 15, t_out 8/8/1; N=31 → tubelet (30, pad) kept); all error paths; default chunk size and short video; `chunk_boundaries` (N=33 → [8, 16]); meta values; sources (uint8/float tensor, PNG folder = tensor with diff 0, sorted order, open_video errors). Video-file decoding is not in pytest (needs decord + a real file); it's in the Colab notebook (step 4). **Result: pending; you run it on Colab.**
+- **Step 3 (tests):** new `tests/test_video_reader.py`, fake adapters (`FakeAdapter` stride 1/2, `FakeFixed16` VideoMAE-like). Synthetic frame k = k/1000 everywhere, so each output's feature value identifies its source frame. Covers: coverage for N ∈ {1, 15, 16, 17, 33, 48} × stride {1, 2} × overlap {0, 2, 4, 8}; fixed-16 coverage for N ∈ {16, 17, 33, 48, 82}; earlier-chunk-wins (N=20, chunk 8, overlap 4 → starts 0/4/8/12); overlap 0 = plain chunking; padding (N=33 → n_pad 15, t_out 8/8/1; N=31 → tubelet (30, pad) kept); all error paths; default chunk size and short video; `chunk_boundaries` (N=33 → [8, 16]); meta values; sources (uint8/float tensor, PNG folder = tensor with diff 0, sorted order, open_video errors). Video-file decoding is not in pytest (needs decord + a real file); it's in the Colab notebook (step 4). **Result (Colab, Python 3.13.16, pytest 8.4.2, branch `experiments-task02`): 84 passed, 0 failed, 3.87 s.** (48 variable-T coverage + 20 fixed-16 coverage + 16 other.)
+- **Step 4 (Colab notebook):** new `tests/T02_video_reader_check.ipynb` (16 cells, generated by a script; every code cell compiles locally, not run). Clones `experiments-task02` (fetch + `checkout -B` for an existing clone), installs `eva-decord` (as `requirements.txt`; on failure the fallback path is used and the "decord backend used" check fails visibly). DAVIS from ETH (Q20), clip `bear`. Checks as in Tests (Colab) above; Q20/Q21 added; UCF-101 replaced by the DAVIS mp4 (Q21). Config constants in Cell 2 (`CHUNK=16`, `SMALL_CHUNK=4`, `OVERLAP=4`, `VIDEO_FPS=24`, `VIDEO_CRF=18`, `EXACT_MAX_ABS=1e-3`, `EXACT_MIN_COS=0.99999`, `MEM_TOL=0.10`). **Result: pending; you run it on Colab.**
