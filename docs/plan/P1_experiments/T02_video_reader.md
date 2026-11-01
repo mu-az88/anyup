@@ -5,7 +5,7 @@
 | Task ID | T02 |
 | Plan | P1 Experiments (`plan.md`), Phase A.1/A.3 |
 | Branch | `experiments-task02` |
-| Status | in progress (step 4 fixes after Colab run 1; waiting for run 2) |
+| Status | done |
 | Depends on | T01 (backbone adapters) |
 | Blocks | T03 Upsampler wrapper, notebook refactor |
 
@@ -43,9 +43,10 @@ A helper that takes any video (any resolution, any frame rate) and runs a backbo
 | 19 | How to run the pytest (no torch on the local machine)? | **On Colab.** You run `python -m pytest tests/test_video_reader.py -v` and paste the output. |
 | 20 | DAVIS source for the Colab notebook? | **Always download from ETH** (`DAVIS_URL` in the notebook), not the Drive zip. |
 | 21 | Video file for the decord vs torchvision check? | **Encode DAVIS `bear` (82 frames) to mp4 with ffmpeg** in the notebook (x264, crf 18, 24 fps). No UCF-101 needed. Codec loss vs the JPEGs is reported. |
-| 22 | Pass criterion for the chunk-invariance checks (DINOv2 failed abs 1e-3 with cos 0.999999)? | **Relative error + cosine:** pass if `max_abs / max|feature| < 1e-4` (`REL_TOL`) **and** every frame's cosine > 0.99999; notebook prints `max|feature|`. Applies to all chunk-invariance checks. |
+| 22 | Pass criterion for the chunk-invariance checks (DINOv2 failed abs 1e-3 with cos 0.999999)? | **Relative error + cosine:** pass if `max_abs / max|feature| < 1e-3` (`REL_TOL`; was 1e-4, changed in Q25) **and** every frame's cosine > 0.99999; notebook prints `max|feature|`. Applies to all chunk-invariance checks. |
 | 23 | Video-file fallback now that `torchvision.io.read_video` is gone? | **decord only.** No fallback; if `import decord` fails, `VideoFileSource` raises `ImportError("... pip install eva-decord")`. |
 | 24 | Training reader `anyup/data/video_dataset.py` has the same dead fallback? | **Note it for P2** in `plan.md`. No training-code change in T02. |
+| 25 | DINOv2 failed `REL_TOL = 1e-4` (batch 16 vs 4: rel 4.4e-4, cos 0.9999992). How to resolve? | **`REL_TOL = 1e-3`** (about 2× margin over the measured value) **plus a batch-size diagnostic** (INFO): DINOv2 relative error and cosine vs one call on all frames for chunk sizes 1, 2, 4, 8, 16, and chunk 4 run twice (determinism). |
 
 ## Design
 
@@ -140,7 +141,7 @@ pytest (fake adapter, CPU; run on Colab, Q19):
 
 Colab (real backbones):
 - **Chunked = direct (exact):** for a 16-frame DAVIS clip, `iter_backbone_chunks` output equals `bb(frames)` (max abs diff = 0) for all three backbones.
-- **Per-frame chunk invariance:** DINOv2 / Swin per-frame, chunk 16 vs chunk 4 on the same clip: relative error `max|a−b| / max|a|` < 1e-4 and every frame's cosine > 0.99999 (Q22).
+- **Per-frame chunk invariance:** DINOv2 / Swin per-frame, chunk 16 vs chunk 4 on the same clip: relative error `max|a−b| / max|a|` < 1e-3 and every frame's cosine > 0.99999 (Q22, Q25). Plus a DINOv2 batch-size diagnostic (INFO): chunk sizes 1/2/4/8/16 vs one call, and chunk 4 twice.
 - **Overlap = 0 is the default path:** `overlap=0` output equals the no-overlap output exactly. With VideoMAE overlap 4 on a full clip: shapes, global indices, and cosine to the overlap-0 features reported (expected < 1, not a pass/fail check).
 - **Folder reader vs Exp 2/3 loader:** same JPEG list and same [0,1] pixels as the old `sorted(glob("*.jpg"))` + PIL path (diff = 0).
 - **Chunked = direct** covers `videomae`, `swin_t` per_frame, `swin_t` clip, `dinov2` (`torch.equal`).
@@ -152,7 +153,9 @@ Colab (real backbones):
 
 - `anyup/video.py` exists; `open_video` handles folders, video files and tensors.
 - `iter_backbone_chunks` processes every frame once (for any valid `overlap`), pads/drops VideoMAE's last chunk, drops overlap context (earlier chunk wins), and puts global indices + chunk meta on every output.
-- Local pytest passes; Colab check passes (chunked = direct exactly, reader = old loader exactly).
+- pytest passes (on Colab, Q19); Colab check passes (chunked = direct exactly, reader = old loader exactly).
+
+**Status at close:** all met. pytest 85/85 passed; notebook 18/18 checks passed (run 4).
 
 ## Implementation Log
 
@@ -177,4 +180,19 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - Notebook Cell 8: fallback check and decord-vs-torchvision pixel diff removed; added "no decord → clear ImportError" check. Patched with a script (the generator script from step 4 was lost with the scratchpad); every code cell compiles, not run.
   - pytest: added `test_video_file_without_decord_raises` (monkeypatches `sys.modules["decord"] = None`). Compiles; not run (no torch locally).
   - Q24: training-reader fallback logged in `plan.md` as a P2 issue.
-  - **Result: pending; you rerun pytest and the notebook on Colab.**
+  - **Colab run 2 (commit `e47d15b`): invalid as a notebook check.** The new `anyup/video.py` was used (the fallback check now hits `ImportError('VideoFileSource needs decord: pip install eva-decord')`, the intended Q23 behaviour), but the notebook cells were the **old** version (absolute criterion, no `max|f|`, old fallback check), so the same 2 checks failed as in run 1 with identical numbers. The repo notebook at `e47d15b` does contain the new cells (`REL_TOL` present). Cause: a stale copy of the notebook opened in Colab. Rerun with the notebook opened from the branch. pytest output for run 2 not received.
+  - **Colab run 3 (commit `e47d15b`, notebook opened from the branch): 17 checks, 1 failed.** All run-1 PASS results unchanged (same numbers). Fallback FAIL fixed: decord backend, 82 frames, (480, 854), 24.0 fps; without decord → `ImportError('VideoFileSource needs decord: pip install eva-decord')` (PASS). Chunk invariance with relative + cosine (Q22):
+    - swin_t per-frame: max|f| 9.24; 16 vs 4 rel 8.18e-06, min_cos 0.9999997; 16 vs whole rel 2.09e-06, min_cos 0.9999997 → PASS.
+    - **dinov2: max|f| 26.1; 16 vs 4 max_abs 1.16e-02, rel 4.43e-04, min_cos 0.9999992 → FAIL (REL_TOL 1e-4); 16 vs whole max_abs 6.57e-04, rel 2.51e-05, min_cos 0.9999993 → within tol.** Indices correct. The magnitude hypothesis from run 1 only partly holds: DINOv2 features are ~3× larger than Swin's, but its relative error at batch 4 is still ~50× Swin's. REL_TOL = 1e-4 was my estimate, not based on data. Open, see question.
+  - pytest for this round: output not received yet.
+- **Fix after run 3 (Q25):** notebook Cell 2 `REL_TOL` 1e-4 → 1e-3 (old value was my estimate, not data-based; new value is ~2× the measured DINOv2 worst case 4.4e-4), new `DIAG_BATCHES = [1, 2, 4, 8, 16]`; Cell 6 adds the DINOv2 batch-size diagnostic (INFO, chunk sizes vs one call + chunk 4 twice). Patched by script; code cells compile, not run. No change to `anyup/video.py`.
+  - **Colab run 4 (notebook from the branch): 18 checks, 0 failed.** All other numbers identical to run 3. DINOv2 chunk invariance now PASS (16 vs 4 rel 4.43e-04, 16 vs whole rel 2.51e-05, min_cos ≥ 0.9999992).
+  - Diagnostic (INFO), DINOv2 vs one call on all 82 frames: bs=1 rel 5.15e-04 / min_cos 0.9999991; bs=2 4.86e-04 / 0.9999992; bs=4 4.43e-04 / 0.9999992; bs=8 3.32e-04 / 0.9999990; bs=16 2.51e-05 / 0.9999993. Chunk 4 run twice: max_abs 0 (deterministic). Reading: the difference depends only on the batch size and is exactly reproducible at a fixed batch size, consistent with batch-size-dependent GPU kernels (bs 16 and the 82-frame call apparently use the same kernel family). Not a chunking bug.
+- **pytest after the decord change (Colab):** 85 passed in 4.27 s (84 earlier + `test_video_file_without_decord_raises`).
+- **Close-out.** All Done When items met. Files: new `anyup/video.py`, `tests/test_video_reader.py`, `tests/T02_video_reader_check.ipynb`; `plan.md` (Task Index, P2 issue). `anyup/backbones.py` unchanged.
+  - Notes for later tasks:
+    - T03 implements the AnyUp3D policy fixed here (Q13, Q16, Q18): one yielded chunk = one AnyUp3D call, no cross-chunk context; per-frame backbones give it 16 feature frames per call (training used 8, Q14).
+    - `overlap` is open: to be chosen by experiment. VideoMAE features are sensitive to it (overlap 4 vs 0: per-frame cosine mean 0.9643, min 0.9165).
+    - Batch size changes DINOv2 features by up to ~5e-4 relative (deterministic at a fixed batch size), so experiment configs should fix `chunk_size` for exact reproducibility (reproducibility task, A.5).
+    - mp4 (crf 18) vs JPEG pixel loss: mean 0.0117, max 0.23. Results from video files and JPEG folders aren't directly comparable; DAVIS uses JPEG folders.
+    - Training reader's dead torchvision fallback logged in `plan.md` for P2.

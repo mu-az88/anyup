@@ -34,6 +34,7 @@
 ## Issues for P2 (training pipeline), found during P1
 
 - `anyup/data/video_dataset.py:40` falls back to `torchvision.io.read_video`, which was removed in torchvision 0.26 (Colab, found in T02). The fallback is dead code: if decord fails, training crashes with an `ImportError`. Fix in P2 (decord only, as in `anyup/video.py`, or another reader).
+- `train_3d.py` does not match the checkpoints in use (found in T03): it builds `AnyUp()` with the default `window_t=3` (`train_3d.py:394`) and saves under `model_state_dict`, while the run_01/run_02 checkpoints come from `Train_3D_full.ipynb` (`window_t=4`, key `"anyup"`, pickled `TStage`). Decide in P2 which training entry point is canonical.
 
 ## Open Questions
 
@@ -82,7 +83,7 @@ These are suggestions, to confirm with the supervisor and against the paper's sc
 
 ## Immediate Next Step
 
-T01 (Phase A.1): review the experiment notebooks one by one, fill in the requirements tracker in `T01_backbone_loader.md`, then implement the loader.
+T03 (Phase A.2): unified `Upsampler` wrapper (AnyUp3D, AnyUp2D, bilinear), see `T03_upsampler_wrapper.md`.
 
 ## Task Index
 
@@ -91,8 +92,8 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | ID | Task | Phase | Status | File |
 |---|---|---|---|---|
 | T01 | Unified `BackboneLoader` | A.1 | done | `T01_backbone_loader.md` |
-| T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | in progress | `T02_video_reader.md` |
-| T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | not yet created | — |
+| T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | done | `T02_video_reader.md` |
+| T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | in progress | `T03_upsampler_wrapper.md` |
 | — | Refactor experiment notebooks to use shared backbones + upsamplers | A.2+ | not yet created | — |
 | — | Shared DAVIS data utilities | A.3 | not yet created | — |
 | — | Shared metrics module | A.4 | not yet created | — |
