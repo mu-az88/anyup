@@ -9,6 +9,9 @@ torch
 torchvision
 eva-decord
 transformers
+scipy          # anyup.metrics paired_stats (T04)
+scikit-image   # anyup.metrics vendored DAVIS boundary F (skimage.morphology.disk, T04)
+opencv-python  # anyup.metrics / anyup.davis (cv2), as the DAVIS toolkit and Exp 3
 
 # Dev / testing
 pytest

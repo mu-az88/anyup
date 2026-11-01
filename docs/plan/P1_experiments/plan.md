@@ -57,7 +57,7 @@ The experiments were built separately during the thesis. Backbone loading, model
 1. **Unified `BackboneLoader`** (task **T01**, see `T01_backbone_loader.md`): one entry point, one adapter per backbone, a standard output (`features`, `guide`, `meta`).
 2. **Unified `Upsampler` wrapper:** AnyUp3D, AnyUp2D (per-frame), and simple baselines (bilinear, etc.) behind one call. This lets every experiment run any backbone × upsampler combination.
 3. **Shared data utilities:** one DAVIS loader with consistent frame sampling, resolution and resizing, and annotation handling, reused by Exp 2 and Exp 3.
-4. **Shared metrics module:** cosine fidelity, temporal consistency, and the official DAVIS J&F. Each is defined once.
+4. **Shared metrics module:** cosine fidelity, temporal consistency, and the official DAVIS J&F. Each is defined once. Compute cosines in float64 (or per pixel): one float32 cosine over a whole 768×112² frame gave 1.0034 for identical tensors (found in T03).
 5. **Reproducibility:** fixed seeds, one config per run (backbone, checkpoint, sizes, frames, chunk size), and results saved to disk in a structured format (CSV or JSON per clip, plus a summary).
 
 ### Phase B: Re-verify the thesis results
@@ -94,7 +94,6 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | T01 | Unified `BackboneLoader` | A.1 | done | `T01_backbone_loader.md` |
 | T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | done | `T02_video_reader.md` |
 | T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | in progress | `T03_upsampler_wrapper.md` |
-| — | Refactor experiment notebooks to use shared backbones + upsamplers | A.2+ | not yet created | — |
-| — | Shared DAVIS data utilities | A.3 | not yet created | — |
-| — | Shared metrics module | A.4 | not yet created | — |
-| — | Reproducibility (seeds, configs, results on disk) | A.5 | not yet created | — |
+| T04 | Shared DAVIS utilities + metrics module (official J&F, temporal cosine, fidelity, mIoU, paired stats, results I/O) | A.3 + A.4 | in progress | `T04_davis_metrics.md` |
+| T05 | Refactor experiment notebooks to use shared backbones, upsamplers, DAVIS utils, metrics | A.2+ | todo (not yet created) | — |
+| — | Reproducibility (seeds, configs; results I/O is in T04) | A.5 | not yet created | — |

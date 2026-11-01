@@ -23,7 +23,7 @@ AnyUp3D extends **AnyUp** (resolution-agnostic 2D feature upsampling) to **video
 ## Implementation Gotchas (do not break these)
 
 - AnyUp call signature: `model(guide, features, output_size=(H, W), q_chunk_size=...)`. **Guide comes first.**
-- Checkpoint key is `"anyup"`, not `"model"`. `torch.load(..., weights_only=False)` is required (pickled `TStage` object).
+- Checkpoint key is `"anyup"`, not `"model"`. The checkpoint contains a pickled `__main__.TStage`; load it with `anyup.upsamplers.load_anyup3d_checkpoint` (`weights_only=True` + an allowlisted `TStage` stub, T03), never `weights_only=False`.
 - `kernel_size_lfu=5` is mandatory; `t_k=3` is the temporal kernel size throughout.
 - `window_t=4` (as in training). It's not stored in the checkpoint, so a wrong value loads silently.
 - Guides are **ImageNet-normalized** (as in training), for both AnyUp2D and AnyUp3D.

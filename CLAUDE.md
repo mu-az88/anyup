@@ -75,4 +75,4 @@ The files below are loaded automatically. **To switch context, edit these lines.
 
 @docs/context/project_context.md
 @docs/plan/P1_experiments/plan.md
-@docs/plan/P1_experiments/T02_video_reader.md
+@docs/plan/P1_experiments/T03_upsampler_wrapper.md

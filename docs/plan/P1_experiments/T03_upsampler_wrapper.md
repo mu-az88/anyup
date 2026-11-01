@@ -111,13 +111,14 @@ Colab (real weights, DAVIS `bear`, VideoMAE, 16 frames):
 - **Bilinear vs Exp 3 `upsample_bilinear` (exact):** Swin-T per-frame features at `PROP_SIZE=56`, both on CPU (as Exp 3). GPU wrapper vs CPU reference reported as INFO.
 - **Full path (INFO):** `iter_backbone_chunks` + `up` on all 82 frames for each upsampler: shapes, frame indices, time and peak memory per chunk.
 - **q_chunk_size:** AnyUp3D with 4096 vs None: relative error + cosine, time and peak memory (INFO).
-- Summary saved to Drive (`results/T03_upsampler_check.json`: env, commit, every check).
+- Summary saved to Drive (`results/T03_upsampler_check_<GUIDE_SIZE>.json`: env, commit, size, every check).
+- **Sizes:** `FULL_SIZE` switch in Cell 2. `True` = guide/output 224² (Exp 2 size, A100); `False` = 112² (T4). The AnyUp3D/AnyUp2D regression and the full-path checks run at `GUIDE_SIZE`. Only the 224² run counts as the final regression.
 
 ## Done When
 
 - `anyup/upsamplers.py` exists; `UpsamplerLoader.load` builds all three; each takes a `BackboneOutput` chunk.
 - AnyUp3D loads checkpoints strictly without notebook-side `TStage`.
-- pytest passes; Colab: AnyUp3D and AnyUp2D match the Exp 2 code, bilinear matches the Exp 3 code.
+- pytest passes; Colab: AnyUp3D and AnyUp2D match the Exp 2 code, bilinear matches the Exp 3 code. **At full size (224², `FULL_SIZE=True`, A100); a 112² run alone leaves T03 open on this item.**
 
 ## Implementation Log
 
@@ -144,3 +145,14 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - Changed from the design: both regression paths get the T01 guide (not Exp 2's PIL-resized guides). The wrapper is tested on identical inputs; the PIL vs tensor resize difference was measured in T01.
   - Added: arch-vs-`cfg` check, weights-equality check, bilinear GPU-vs-CPU INFO, results JSON on Drive.
   - Memory: AnyUp3D at 224² with `q_chunk_size=None` (as Exp 2) is heavy; A100 recommended in the notebook header.
+- **Colab run 1 (T4): CUDA out of memory** (cell not reported). Expected: AnyUp3D at 224² with `q_chunk_size=None` (Exp 2 setting) builds attention weights of about T·224²·(T·14²) per head (8 frames: ~2.5 GB per head before averaging), beyond a T4's 15 GB. No A100 available now.
+  - Fix (notebook only, your request: skip for now without losing the full run): new `FULL_SIZE` switch (default `False`) → `GUIDE_SIZE` 112 (VideoMAE adapter `guide_size=GUIDE_SIZE` in Cells 6 and 8; full-path shape check uses `GUIDE_SIZE`). `True` restores the original 224² run unchanged. The summary prints the size and marks a reduced run as "not the final regression"; the results JSON name includes the size, so the full run won't overwrite it. No change to `anyup/upsamplers.py`.
+  - Done When updated: the exact Exp 2 regression must also pass at 224² before T03 is closed.
+- **Colab run 2 (T4, commit `39e1e1f`, `FULL_SIZE=False`, 112²): 13 checks, 0 failed.**
+  - Safe load PASS: keys `anyup, cfg, data_epoch, global_step, optimizer, scheduler`; no other non-allowlisted objects (Q4 risk resolved). `global_step=6500`, `data_epoch=7`, `t_schedule=[TStage(2, 0, 2), TStage(4, 5000, 1), TStage(8, 15000, 1)]`.
+  - `ANYUP3D_ARCH` = checkpoint `cfg` for input_dim, kernel_size_lfu, num_heads, qk_dim, t_k, window_ratio, window_t (no mismatches). Strict load 0 missing / 0 unexpected; wrapper weights = Exp 2 weights (both models).
+  - **anyup3d = Exp 2 `run_anyup3d`: (8, 768, 112, 112), max_abs 0. anyup2d = Exp 2 `run_anyup2d`: max_abs 0. bilinear = Exp 3 `upsample_bilinear`: (16, 768, 56, 56), max_abs 0.** Bilinear GPU vs CPU (INFO): max_abs 9.54e-07.
+  - Full path, 82 frames, VideoMAE: 6 chunks, t_out [8, 8, 8, 8, 8, 1], indices `range(0, 82, 2)` for all three. Per chunk: bilinear ~0.00 s / 686 MiB; anyup2d 0.15 s / 982 MiB; anyup3d 0.37–0.56 s / 6255 MiB (last chunk, T=1: 0.06 s / 575 MiB).
+  - q_chunk 4096 vs None (INFO): max_abs 3.81e-06, rel 2.73e-07; None 0.90 s / 6250 MiB, 4096 0.66 s / 1698 MiB (3.7× less memory, also faster).
+  - **Metric bug in the notebook helper:** reported cosines > 1 (anyup3d 1.0034, anyup2d 1.0027, bilinear 1.00016) for identical or near-identical tensors. Cause: float32 `F.cosine_similarity` over 768·112² ≈ 9.6M values per frame. The PASS results don't depend on it (they require max_abs = 0), but the q_chunk "within tolerance" flag was meaningless. Fix: `compare_rel` computes the cosine in float64 (notebook only; takes effect in the full-size run). Not changed in the closed T02 notebook (its tensors were 768·16² values per frame, values were < 1). **Note for the metrics module (A.4): compute cosine metrics in float64 or per-pixel, never as one float32 dot over a whole frame.**
+  - Remaining for T03: the full-size run (`FULL_SIZE=True`, 224², A100). At 224², AnyUp3D with `q_chunk_size=None` needs about 4× the 112² memory (~25 GB); 4096 would fit a T4 but isn't the Exp 2 setting.
