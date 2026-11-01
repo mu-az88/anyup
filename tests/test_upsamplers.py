@@ -51,21 +51,24 @@ def save_anyup3d_ckpt(path, sd=None, extra=None, **arch):
     return path
 
 
-@dataclass
-class _TrainTStage:
-    """Same shape as Train_3D_full.ipynb's dataclass TStage."""
-    t: int
-    start_step: int
-    batch_size: int
+def _make_train_tstage():
+    """Fresh dataclass shaped like Train_3D_full.ipynb's TStage, global name __main__.TStage."""
+    @dataclass
+    class TStage:
+        t: int
+        start_step: int
+        batch_size: int
+    TStage.__module__ = "__main__"
+    TStage.__qualname__ = "TStage"
+    return TStage
 
 
 @pytest.fixture
 def ckpt_with_tstage(tmp_path, monkeypatch):
     """Checkpoint pickling a dataclass under the global name __main__.TStage (as the real ones)."""
-    monkeypatch.setattr(_TrainTStage, "__module__", "__main__")
-    monkeypatch.setattr(_TrainTStage, "__qualname__", "TStage")
-    monkeypatch.setattr(sys.modules["__main__"], "TStage", _TrainTStage, raising=False)
-    cfg = {"window_t": 4, "t_schedule": [_TrainTStage(2, 0, 2), _TrainTStage(4, 5000, 1)]}
+    train_tstage = _make_train_tstage()
+    monkeypatch.setattr(sys.modules["__main__"], "TStage", train_tstage, raising=False)
+    cfg = {"window_t": 4, "t_schedule": [train_tstage(2, 0, 2), train_tstage(4, 5000, 1)]}
     path = save_anyup3d_ckpt(tmp_path / "ckpt.pth", extra={"cfg": cfg})
     monkeypatch.delattr(sys.modules["__main__"], "TStage")   # loading must not need a caller-side TStage
     return path
