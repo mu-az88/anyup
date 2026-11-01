@@ -9,8 +9,7 @@ Video reader + chunked backbone runner for AnyUp3D experiments (task T02).
         out.meta       # T01 keys + chunk keys; meta["frame_index"] is GLOBAL
 
 Every frame is used (no skipping) and output exactly once. Chunks are loaded one
-at a time, so memory stays constant in the video length (except for the
-torchvision fallback of VideoFileSource, which decodes the whole file).
+at a time, so memory stays constant in the video length.
 
 AnyUp3D policy (T02 Q13/Q18): one yielded chunk = one AnyUp3D call (T03), with no
 temporal context across chunk boundaries for AnyUp3D.
@@ -117,46 +116,34 @@ class FrameFolderSource(VideoSource):
 
 class VideoFileSource(VideoSource):
     """
-    Video file (mp4, avi, ...). decord with per-chunk get_batch (constant memory);
-    falls back to torchvision.io.read_video, which decodes the WHOLE file into memory.
+    Video file (mp4, avi, ...). decord only, with per-chunk get_batch (constant memory).
+    No fallback: torchvision.io.read_video was removed in torchvision 0.26.
     """
+
+    backend = "decord"
 
     def __init__(self, path: Union[str, Path]):
         self.path = Path(path)
         self.name = str(self.path)
-        self._vr = None
-        self._video = None
         try:
             import decord
-            decord.bridge.set_bridge("torch")
-            self._vr = decord.VideoReader(str(self.path), ctx=decord.cpu(0))
-            self.backend = "decord"
-            self.fps = float(self._vr.get_avg_fps())
-            h, w = self._vr[0].shape[:2]
-            self._size = (int(h), int(w))
-        except Exception as e:
-            warnings.warn(f"decord failed on {self.path} ({e!r}); falling back to torchvision.io "
-                          f"(whole video decoded into memory)")
-            from torchvision.io import read_video
-            video, _, info = read_video(str(self.path), output_format="TCHW", pts_unit="sec")  # (T, 3, H, W) uint8
-            self._video = video
-            self.backend = "torchvision"
-            self.fps = float(info["video_fps"]) if "video_fps" in info else None
-            self._size = tuple(video.shape[-2:])
+        except ImportError as e:
+            raise ImportError("VideoFileSource needs decord: pip install eva-decord") from e
+        decord.bridge.set_bridge("torch")
+        self._vr = decord.VideoReader(str(self.path), ctx=decord.cpu(0))
+        self.fps = float(self._vr.get_avg_fps())
+        h, w = self._vr[0].shape[:2]
+        self._size = (int(h), int(w))
 
     def __len__(self):
-        return len(self._vr) if self._vr is not None else self._video.shape[0]
+        return len(self._vr)
 
     @property
     def native_size(self):
         return self._size
 
     def get(self, indices):
-        indices = list(indices)
-        if self._vr is not None:
-            frames = self._vr.get_batch(indices).permute(0, 3, 1, 2)   # (n, H, W, 3) → (n, 3, H, W) uint8
-        else:
-            frames = self._video[indices]                              # (n, 3, H, W) uint8
+        frames = self._vr.get_batch(list(indices)).permute(0, 3, 1, 2)   # (n, H, W, 3) → (n, 3, H, W) uint8
         return frames.float() / 255.0
 
 

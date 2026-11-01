@@ -5,6 +5,8 @@ Uses fake adapters (no downloads, CPU). Frame k of the synthetic video has every
 equal to k / 1000, so each output's feature value identifies which input frame produced it.
 """
 
+import sys
+
 import pytest
 import torch
 import torch.nn as nn
@@ -206,6 +208,14 @@ def test_frame_folder_sorted_order(tmp_path):
         Image.new("RGB", (4, 4), (k * 10, 0, 0)).save(tmp_path / f"{k:05d}.png")
     src = FrameFolderSource(tmp_path, ext=".png")
     assert (src.get(range(4))[:, 0, 0, 0] * 255).round().tolist() == [0, 10, 20, 30]
+
+
+def test_video_file_without_decord_raises(tmp_path, monkeypatch):
+    f = tmp_path / "clip.mp4"
+    f.write_bytes(b"")
+    monkeypatch.setitem(sys.modules, "decord", None)                       # makes `import decord` raise ImportError
+    with pytest.raises(ImportError, match="pip install eva-decord"):
+        open_video(f)
 
 
 def test_open_video_errors(tmp_path):

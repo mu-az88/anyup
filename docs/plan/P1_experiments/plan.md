@@ -31,6 +31,10 @@
 - Exp 3 fed raw [0,1] guides; training uses ImageNet-normalized guides. **Re-run in Phase B with normalized guides; the J&F numbers may change.**
 - AnyUp3D was trained on VideoMAE features only, so DINOv2 and Swin-T results are zero-shot.
 
+## Issues for P2 (training pipeline), found during P1
+
+- `anyup/data/video_dataset.py:40` falls back to `torchvision.io.read_video`, which was removed in torchvision 0.26 (Colab, found in T02). The fallback is dead code: if decord fails, training crashes with an `ImportError`. Fix in P2 (decord only, as in `anyup/video.py`, or another reader).
+
 ## Open Questions
 
 _Not needed for T01/T02; parked for later._
