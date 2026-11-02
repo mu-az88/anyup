@@ -20,7 +20,7 @@
 ### Evaluation details to keep
 
 - **Exp 3:** non-parametric label propagation (no trained head), following the Jabri et al. and DINO protocols. Settings: `TAU=0.07`, `TOP_K=7`, `N_LAST_FRAMES=6`.
-- **Exp 3:** **exclude frame 0** from scoring. Use the **official DAVIS boundary metric** (dilation tolerance, `bound_th=0.008`), not exact pixel overlap.
+- **Exp 3:** **exclude frame 0** from scoring. Use the **official DAVIS boundary metric** (dilation tolerance, `bound_th=0.008`), not exact pixel overlap. _(T04: now the official toolkit protocol, vendored in `anyup.metrics`: first **and** last frame dropped, per-object aggregation. The old Exp 3 code scored frame 0 and used erosion boundaries; on the same masks it gives J&F about +0.02 higher.)_
 - **Exp 3:** low absolute J&F is expected. Frame it as a **lower bound**, not a weakness. Swin-T is a deliberate zero-shot universality test.
 - A sign-test p-value is available (p ≈ 9.3×10⁻¹⁰ for a 30/30 result). **Check which result this refers to,** since Exp 3 reports 27/30.
 - SAM 2 appears in the literature review as a key baseline but was never evaluated. Either address it or remove it.
@@ -43,7 +43,9 @@ _Not needed for T01/T02; parked for later._
 - Which notebook produced the cosine fidelity numbers (0.9899 → 0.9913)? Likely `results/VideoMAE features visualization exp/` (250 / 6000 steps). Unconfirmed.
 - Where is the Exp 4 (efficiency) notebook? It's not in the repo.
 - Canonical checkpoint: step6000 or step6500?
-- Sign-test p-value (30/30) vs Exp 3's 27/30: which result does it belong to?
+- Sign-test p-value (30/30) vs Exp 3's 27/30: which result does it belong to? _(T04: p ≈ 9.3×10⁻¹⁰ = 0.5³⁰ exactly, a one-sided sign test at 30/30. 27/30 gives one-sided 4.2×10⁻⁶ / two-sided 8.4×10⁻⁶. So it cannot be the Exp 3 result.)_
+- Cosine fidelity (GAP definition) can't rank upsamplers: bilinear scores 1.000000, above AnyUp2D (0.99989) and AnyUp3D (0.99629) (T04). Keep it only as a sanity check, or replace it with a per-pixel variant?
+- Chunk boundaries lower temporal cosine for every method, the raw VideoMAE features included (within 0.928 vs cross 0.880; AnyUp3D 0.993 vs 0.952, T04). Use T02 `overlap`, and report within / cross?
 - SAM 2: evaluate it or remove it.
 
 ## The Problem to Fix
@@ -62,7 +64,7 @@ The experiments were built separately during the thesis. Backbone loading, model
 
 ### Phase B: Re-verify the thesis results
 
-- Re-run Exp 1–4 on the shared foundation and confirm the numbers match the thesis, or explain the differences. Expected differences: resize method (tensor vs PIL, Swin-T feature cos ≈ 0.993; measured in T01), Swin-T Kinetics input norm (cos ≈ 0.973), Exp 1 (`window_t` 3→4, ckpt step500→canonical, DINOv2 via timm wrapper instead of HF), Exp 3 (normalized guide), and Exp 2/3 (all frames instead of 16-linspace / every-12th, decided in T02). So Exp 2/3 thesis numbers won't be reproduced exactly; the new numbers replace them.
+- Re-run Exp 1–4 on the shared foundation and confirm the numbers match the thesis, or explain the differences. Expected differences: resize method (tensor vs PIL, Swin-T feature cos ≈ 0.993; measured in T01), Swin-T Kinetics input norm (cos ≈ 0.973), Exp 1 (`window_t` 3→4, ckpt step500→canonical, DINOv2 via timm wrapper instead of HF), Exp 3 (normalized guide), and Exp 2/3 (all frames instead of 16-linspace / every-12th, decided in T02). So Exp 2/3 thesis numbers won't be reproduced exactly; the new numbers replace them. Also from T04: Exp 3 now uses the official J&F protocol (drop first + last frame, per-object aggregation, `_seg2bmap` boundaries; old metric ≈ +0.02 J&F on the same masks), and propagation runs in float32 (Exp 3 propagated float16-cached features). First T04 numbers: bilinear Swin-T J&F 0.127 (official, all frames, 56²) vs 0.266 in the thesis. Several changes are mixed in this gap and must be separated.
 - Resolve the open checkpoint question (step6500 vs step6000) and fix one canonical checkpoint for the paper.
 
 ### Phase C: Strengthen the experiments for publication
@@ -83,7 +85,7 @@ These are suggestions, to confirm with the supervisor and against the paper's sc
 
 ## Immediate Next Step
 
-T03 (Phase A.2): unified `Upsampler` wrapper (AnyUp3D, AnyUp2D, bilinear), see `T03_upsampler_wrapper.md`.
+T05: refactor the experiment notebooks onto the shared modules (backbones, video, upsamplers, davis, metrics). T03 stays open only for its 224² A100 regression run (`T03_upsampler_wrapper.md`).
 
 ## Task Index
 
@@ -94,6 +96,6 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | T01 | Unified `BackboneLoader` | A.1 | done | `T01_backbone_loader.md` |
 | T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | done | `T02_video_reader.md` |
 | T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | in progress | `T03_upsampler_wrapper.md` |
-| T04 | Shared DAVIS utilities + metrics module (official J&F, temporal cosine, fidelity, mIoU, paired stats, results I/O) | A.3 + A.4 | in progress | `T04_davis_metrics.md` |
+| T04 | Shared DAVIS utilities + metrics module (official J&F, temporal cosine, fidelity, mIoU, paired stats, results I/O) | A.3 + A.4 | done | `T04_davis_metrics.md` |
 | T05 | Refactor experiment notebooks to use shared backbones, upsamplers, DAVIS utils, metrics | A.2+ | todo (not yet created) | — |
 | — | Reproducibility (seeds, configs; results I/O is in T04) | A.5 | not yet created | — |
