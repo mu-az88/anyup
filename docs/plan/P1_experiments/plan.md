@@ -45,7 +45,7 @@ _Not needed for T01/T02; parked for later._
 - Canonical checkpoint: step6000 or step6500?
 - Sign-test p-value (30/30) vs Exp 3's 27/30: which result does it belong to? _(T04: p ≈ 9.3×10⁻¹⁰ = 0.5³⁰ exactly, a one-sided sign test at 30/30. 27/30 gives one-sided 4.2×10⁻⁶ / two-sided 8.4×10⁻⁶. So it cannot be the Exp 3 result.)_
 - Cosine fidelity (GAP definition) can't rank upsamplers: bilinear scores 1.000000, above AnyUp2D (0.99989) and AnyUp3D (0.99629) (T04). Keep it only as a sanity check, or replace it with a per-pixel variant?
-- Chunk boundaries lower temporal cosine for every method, the raw VideoMAE features included (within 0.928 vs cross 0.880; AnyUp3D 0.993 vs 0.952, T04). Use T02 `overlap`, and report within / cross?
+- Chunk boundaries lower temporal cosine for every method, the raw VideoMAE features included (within 0.928 vs cross 0.880; AnyUp3D 0.993 vs 0.952, T04). Use T02 `overlap`, and report within / cross? _(T05: Exp 2 now uses backbone overlap 8 and reports within / cross. Mean drop raw 0.0015, bilinear 0.0054, AnyUp2D 0.0088, AnyUp3D 0.0324 (30/30 clips). AnyUp3D still gets hard-cut chunks; an upsampler-side overlap is a Phase B/C decision.)_
 - SAM 2: evaluate it or remove it.
 
 ## The Problem to Fix
@@ -65,6 +65,7 @@ The experiments were built separately during the thesis. Backbone loading, model
 ### Phase B: Re-verify the thesis results
 
 - Re-run Exp 1–4 on the shared foundation and confirm the numbers match the thesis, or explain the differences. Expected differences: resize method (tensor vs PIL, Swin-T feature cos ≈ 0.993; measured in T01), Swin-T Kinetics input norm (cos ≈ 0.973), Exp 1 (`window_t` 3→4, ckpt step500→canonical, DINOv2 via timm wrapper instead of HF), Exp 3 (normalized guide), and Exp 2/3 (all frames instead of 16-linspace / every-12th, decided in T02). So Exp 2/3 thesis numbers won't be reproduced exactly; the new numbers replace them. Also from T04: Exp 3 now uses the official J&F protocol (drop first + last frame, per-object aggregation, `_seg2bmap` boundaries; old metric ≈ +0.02 J&F on the same masks), and propagation runs in float32 (Exp 3 propagated float16-cached features). First T04 numbers: bilinear Swin-T J&F 0.127 (official, all frames, 56²) vs 0.266 in the thesis. Several changes are mixed in this gap and must be separated.
+- **T05 new-protocol results (30 clips, step6500):** Exp 3 official J&F bilinear 0.1272 / AnyUp2D 0.1543 / **AnyUp3D 0.2308** (61 objects; per-clip AnyUp3D > bilinear 26/30, > AnyUp2D 27/30, Wilcoxon p2 2.1e-5 / 9.2e-6). Exp 2 temporal cosine raw 0.8795 / bilinear 0.9136 / AnyUp2D 0.9188 / **AnyUp3D 0.9694** (+0.0506 vs AnyUp2D, thesis +0.081; 30/30, p2 1.9e-9). Both refactored paths reproduce the old code exactly under `LEGACY=True`, so these gaps come from the protocol/preprocessing changes listed above. To look at in Phase B: the `drift-straight` collapse in Exp 3 (AnyUp3D J&F 0.033 vs bilinear 0.297).
 - Resolve the open checkpoint question (step6500 vs step6000) and fix one canonical checkpoint for the paper.
 
 ### Phase C: Strengthen the experiments for publication
@@ -85,7 +86,7 @@ These are suggestions, to confirm with the supervisor and against the paper's sc
 
 ## Immediate Next Step
 
-T05: refactor the experiment notebooks onto the shared modules (backbones, video, upsamplers, davis, metrics). T03 stays open only for its 224² A100 regression run (`T03_upsampler_wrapper.md`).
+T06: refactor Exp 1 (ADE20K linear probe) onto the shared modules (Q&A first). T03 stays open only for its 224² A100 regression run (`T03_upsampler_wrapper.md`).
 
 ## Task Index
 
@@ -97,6 +98,6 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | done | `T02_video_reader.md` |
 | T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | in progress | `T03_upsampler_wrapper.md` |
 | T04 | Shared DAVIS utilities + metrics module (official J&F, temporal cosine, fidelity, mIoU, paired stats, results I/O) | A.3 + A.4 | done | `T04_davis_metrics.md` |
-| T05 | Refactor Exp 2 + Exp 3 (DAVIS) onto shared backbones, upsamplers, DAVIS utils, metrics (+ `LEGACY` regression flag) | A.2+ | in progress | `T05_exp2_exp3_refactor.md` |
+| T05 | Refactor Exp 2 + Exp 3 (DAVIS) onto shared backbones, upsamplers, DAVIS utils, metrics (+ `LEGACY` regression flag) | A.2+ | done | `T05_exp2_exp3_refactor.md` |
 | T06 | Refactor Exp 1 (ADE20K linear probe) onto the shared modules | A.2+ | todo (not yet created) | — |
 | — | Reproducibility (seeds, configs; results I/O is in T04) | A.5 | not yet created | — |

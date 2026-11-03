@@ -5,7 +5,7 @@
 | Task ID | T05 |
 | Plan | P1 Experiments (`plan.md`), Phase A.2+ (prepares Phase B) |
 | Branch | `experiments-task02` (continued, your choice) |
-| Status | in progress |
+| Status | done |
 | Depends on | T01 (backbones), T02 (`iter_backbone_chunks`, `chunk_boundaries`), T03 (upsamplers), T04 (`davis`, `metrics`) |
 | Blocks | Phase B re-runs of Exp 2/3; T06 (Exp 1 refactor) follows the same pattern |
 
@@ -179,4 +179,52 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - Main loop: Swin-T chunks once per clip → per condition `torch.cat` of the upsampled chunks (GPU) → `propagate_labels` → `save_mask_png` → read the PNGs back at native res (what the toolkit reads, as T04) → `eval_clip_jf`.
   - Changed from the design: PNGs written to local disk and zipped to Drive (old → new: was "under `OUTPUT_DIR/<run_name>/masks/`"; why: ~2,000 PNGs per condition on Drive is slow). Design table updated.
   - Legacy compare details (Design table updated): bilinear compared with the wrapper on CPU (old code ran on CPU; T03 measured GPU ≠ CPU at ~1e-6), propagation compared on CPU (as the old code; T04 measured GPU ≠ CPU in a few pixels), both GPU/CPU gaps reported as INFO. The old metric (frame-pooled, frame 0 included) runs on the same PNGs as INFO.
-- **Next:** you commit + push, run `pytest tests/test_metrics.py` on Colab, then both notebooks with `LEGACY=True` (T4), and paste the outputs.
+- **pytest run 1 (Colab, Python 3.13.16, pytest 8.4.2): `tests/test_metrics.py` 29 passed, 0 failed, 1 warning, 5.18 s.** The 23 T04 tests are unchanged and pass, so the `_unit_frame` / `_pair_cosine` / `_temporal_summary` split is a regression-free refactor. New: `test_temporal_cosine_stream_equals_full` ×4 (sizes [8,8,8,1], [3], [1,4], [2,1,1]; exact), `..._flip_example`, `..._single_chunk_and_errors`, all pass. The single warning is the known 0/0 in the vendored `db_eval_iou` (T04, expected). Step 1 done.
+- **Exp 2 `LEGACY=True` run 1 (Colab; GPU / commit not in the pasted output): 10 checks, 0 failed.**
+  - Wrapper weights = old reference weights: anyup3d 73 tensors, anyup2d 73 tensors.
+  - **Upsampled outputs new = old, max_abs = 0**, shape (8, 768, 224, 224), for `bike-packing` and `blackswan` × anyup2d / anyup3d (the old `run_anyup3d` with `q_chunk_size=4096`, Q17).
+  - Temporal cosine new (float64, `TemporalCosineStream`) vs old (float32 `adjacent_cosine_sim`), all |diff| ≤ 6.2e-8 (tol 1e-4): bike-packing anyup2d 0.879142 / anyup3d 0.973447; blackswan anyup2d 0.917380 / anyup3d 0.970373 (old 0.970372).
+  - So on the old 16-linspace protocol, the refactored Exp 2 path reproduces the old code: same frames, upsampler calls, reshapes and metric. Remaining gaps vs the thesis come only from preprocessing (Q20) and the protocol changes. Exp 2 legacy check done.
+- **Exp 3 `LEGACY=True` run 1 (Colab; GPU / commit not in the pasted output): 17 checks, 0 failed.** Saved to Drive `results/T05/exp3/legacy_p56_c16_o0_qNone_imagenet/` (`exp3_per_item.csv`, `exp3_summary.json`, `masks.zip`).
+  - Old AnyUp3D load (`strict=False`, verbatim): 0 missing / 0 unexpected.
+  - **Upsampled features new = old, max_abs = 0**: bike-packing (6, 768, 56, 56) and blackswan (5, 768, 56, 56), × bilinear (wrapper on CPU vs old CPU code) / anyup3d.
+  - **Propagated masks new = old on CPU, 0 differing pixels** (bike-packing (6, 56, 56), blackswan (5, 56, 56), both conditions). Since the masks are identical, the old metric on new masks = old metric on old masks holds trivially (that Design check is covered by mask equality, not printed separately).
+  - INFO: bilinear GPU vs CPU max_abs 9.54e-7 (as T03); main-loop GPU masks vs CPU: 6 / 18816 pixels differ (bike-packing bilinear), 0 elsewhere.
+  - INFO, official J&F on the legacy protocol (2 clips, 3 objects; every-12th frames → only 3–4 scored frames per clip after `1:-1`): bilinear 0.3033 (J 0.3567, F 0.2499), anyup3d 0.4192 (J 0.4030, F 0.4354), ΔJ&F +0.111, improved 2/2 (sign / Wilcoxon p2 = 0.5, as expected at n = 2). Old metric on the same masks: bilinear 0.4093, anyup3d 0.5102. The gap (+0.09 to +0.11) is much larger than T04's +0.02 on all frames, because with 5–6 sampled frames the perfect frame 0 is a large share of what the old metric scores.
+  - So on the old every-12th protocol, the refactored Exp 3 path reproduces the old code: same frames, upsampler calls, reshapes and propagation. Exp 3 legacy check done; all `LEGACY=True` items of Done When are met.
+- **Exp 3 `LEGACY=False` full run 1 (30 val clips, all frames; main-loop output only, the summary cell was not pasted): 598 s, `frame_index == range(T)` for every clip: True.** Per clip × condition: 3–12.5 s. The `RuntimeWarning` 0/0 in `db_eval_iou` appears on `india` and `kite-surf` (objects absent in some frames; the official code then sets J = 1, expected).
+  - Per-clip J&F (my computation from the printed lines; **clip-mean, not the official per-object mean**): bilinear 0.1426, anyup2d 0.1876, **anyup3d 0.2543**. AnyUp3D > bilinear on 26/30 clips, > AnyUp2D on 27/30; AnyUp2D > bilinear on 18/30.
+  - AnyUp3D below bilinear: drift-chicane, drift-straight, mbike-trick, soapbox. Below AnyUp2D: drift-chicane, drift-straight, goat.
+  - **Outlier: `drift-straight` AnyUp3D J&F 0.0332 vs bilinear 0.2967 / AnyUp2D 0.3903** (J 0.0265: propagation collapses). To inspect in the saved masks before Phase B.
+  - Cross-check pending: the summary cell's official bilinear J&F must equal T04's 0.1272 (same pipeline: Swin-T Kinetics per-frame, bilinear 56², GPU propagation, all frames).
+- **Exp 2 `LEGACY=False` smoke run (`N_CLIPS=2`, 224², chunk 16, overlap 8, `q_chunk_size=4096`): 24 s, `frame_index == range(0, N, 2)` for every clip: True.** Shapes as designed: bike-packing 69 frames → 35 tokens, 8 chunks; blackswan 50 → 25 tokens, 6 chunks.
+  - all / within / cross: bike-packing raw 0.8837 / 0.8783 / 0.9043, bilinear 0.9132 / 0.9088 / 0.9301, anyup2d 0.9190 / 0.9154 / 0.9328, **anyup3d 0.9816 / 0.9874 / 0.9594**; blackswan raw 0.9115 / 0.9103 / 0.9158, bilinear 0.9400 / 0.9395 / 0.9420, anyup2d 0.9452 / 0.9452 / 0.9453, **anyup3d 0.9833 / 0.9874 / 0.9679**.
+  - Observation: with backbone overlap 8, the boundary drop of the raw / bilinear / AnyUp2D features is gone (cross ≥ within; T04 without overlap: raw within 0.928 vs cross 0.880 on `bear`). AnyUp3D still drops at the boundary (≈ 0.987 → 0.96), as expected from Q7b: it sees hard-cut chunks, and the backbone overlap doesn't help it. 2 clips only (7 / 5 cross pairs); confirm on the full run. _(Full run: only partly true; the drop of the non-3D conditions shrinks to 0.002–0.009 on average but remains on 12–16/30 clips, see below.)_
+  - Per condition: raw 0.0–0.1 s, bilinear 0.3–0.4 s, anyup2d 2.3–4.6 s, anyup3d 3.8–6.5 s per clip (T4).
+- **Exp 3 `LEGACY=False` summary cell (run 1, official `summarize_jf`, 30 clips, 61 objects).** Saved to Drive `results/T05/exp3/new_p56_c16_o0_qNone_kinetics/` (`exp3_per_item.csv`, `exp3_summary.json`, `masks.zip`).
+
+  | condition | J&F | J-Mean | J-Recall | J-Decay | F-Mean | F-Recall | F-Decay |
+  |---|---|---|---|---|---|---|---|
+  | bilinear | 0.1272 | 0.1580 | 0.1173 | 0.1418 | 0.0965 | 0.0220 | 0.1291 |
+  | anyup2d | 0.1543 | 0.1693 | 0.1562 | 0.1302 | 0.1394 | 0.0703 | 0.1407 |
+  | **anyup3d** | **0.2308** | 0.2423 | 0.2058 | 0.1828 | 0.2193 | 0.1426 | 0.1955 |
+
+  - **Cross-check passed: bilinear official J&F 0.1272 = T04's 0.1272** (same pipeline: Swin-T Kinetics per-frame, bilinear 56², GPU propagation, all frames).
+  - Paired stats on per-clip J&F: anyup3d vs bilinear ΔJ&F +0.1117, improved 26/30, sign p2 5.95e-5, Wilcoxon p2 2.08e-5; anyup3d vs anyup2d ΔJ&F +0.0667, improved 27/30, sign p2 8.43e-6, Wilcoxon p2 9.22e-6. The Δ is the mean of per-clip differences, so it equals my clip-mean numbers from run 1 (0.2543 − 0.1426, 0.2543 − 0.1876), not the difference of the per-object J&F above (+0.1036 / +0.0765).
+  - The 𝓕 gain is larger than the 𝓙 gain: vs bilinear ΔF +0.1228 vs ΔJ +0.0843 (1.46×; the thesis said about 2×); vs AnyUp2D ΔF +0.0799 vs ΔJ +0.0730.
+  - Open for Phase B (not T05 scope): the `drift-straight` collapse (AnyUp3D 0.0332); the masks are in `masks.zip`.
+- **Exp 2 `LEGACY=False` full run 1 (30 clips, 224², chunk 16, overlap 8, `q_chunk_size=4096`): 347 s, `frame_index == range(0, N, 2)` for every clip: True.** Saved to Drive `results/T05/exp2/new_g224_c16_o8_q4096/` (`exp2_per_item.csv`, `exp2_summary.json`).
+
+  | condition | all | within | cross |
+  |---|---|---|---|
+  | raw | 0.8795 ± 0.0409 | 0.8795 ± 0.0377 | 0.8780 ± 0.0592 |
+  | bilinear | 0.9136 ± 0.0322 | 0.9144 ± 0.0295 | 0.9090 ± 0.0487 |
+  | anyup2d | 0.9188 ± 0.0309 | 0.9203 ± 0.0282 | 0.9116 ± 0.0475 |
+  | **anyup3d** | **0.9694 ± 0.0217** | 0.9758 ± 0.0189 | 0.9434 ± 0.0380 |
+
+  - Paired stats on per-clip `all`: anyup3d vs raw +0.0900, vs bilinear +0.0558, **vs anyup2d +0.0506 (thesis: +0.081)**; each improved 30/30, sign p2 = Wilcoxon p2 = 1.86e-9 (= 2·0.5³⁰, the minimum at n = 30).
+  - Chunk boundaries (my count from the per-clip lines): mean within − cross drop raw 0.0015 (cross < within on 12/30 clips), bilinear 0.0054 (16/30), anyup2d 0.0088 (16/30), **anyup3d 0.0324 (30/30)**. The backbone overlap removes most of the boundary drop for the non-3D conditions; the residual drop is on high-motion clips (motocross-jump, drift-straight, shooting, scooter-black, libby). AnyUp3D's drop stays (hard-cut chunks, Q7b), but its cross value still beats AnyUp2D's cross on 30/30 clips and AnyUp2D's within on 28/30.
+  - Lowest clips for all conditions: motocross-jump (anyup3d 0.8889) and shooting (0.9080).
+- **Close-out.** All Done When items met: `TemporalCosineStream` + pytest 29 passed; both notebooks ran end to end in both modes with the legacy checks passing (max_abs 0, masks equal, cosine |diff| ≤ 6.2e-8); full new-protocol results for Exp 2 and Exp 3 are on Drive and recorded above. Status → done; `plan.md` Task Index and Phase B notes updated.
+  - Left over (Phase B, recorded in `plan.md`): `drift-straight` AnyUp3D collapse in Exp 3; whether to give AnyUp3D an upsampler-side chunk overlap (its boundary drop of 0.032); separating the causes of the gap to the thesis numbers (Exp 2 +0.081 → +0.051; Exp 3 0.266 → 0.347 vs now 0.127 → 0.231).
+  - Not verified by me: the GPU type and commit of the Colab runs (not in the pasted outputs); the `LEGACY` flag stays in the notebooks until Phase B is accepted.
