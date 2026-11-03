@@ -6,6 +6,7 @@ Shared metrics for AnyUp3D experiments (task T04). Each score is defined once he
         summary = summarize_jf({clip: res, ...})
     Feature metrics (float64):
         temporal_cosine(feats, boundaries)      # Exp 2
+        TemporalCosineStream()                  # Exp 2, chunk by chunk (same math, low memory)
         gap_cosine_fidelity(lr, hr)             # cosine fidelity (VideoMAE viz notebook)
     ADE20K mIoU (Exp 1):  update_conf_mat / compute_miou
     Paired statistics:    paired_stats(ours, base)
@@ -391,19 +392,70 @@ def temporal_cosine(feats: torch.Tensor, boundaries: Optional[Sequence[int]] = N
         raise ValueError(f"boundaries must satisfy 0 < p < T={T}, got {bad}")
 
     per_pair = []
-    prev = F.normalize(feats[0].double(), dim=0)                 # (C, H, W) unit vectors per pixel (Exp 2: dim=1 of (T, C, H, W))
+    prev = _unit_frame(feats[0])
     for t in range(1, T):
-        cur = F.normalize(feats[t].double(), dim=0)              # (C, H, W)
-        per_pair.append((prev * cur).sum(dim=0).mean().item())  # (H, W) → mean over pixels
+        cur = _unit_frame(feats[t])
+        per_pair.append(_pair_cosine(prev, cur))
         prev = cur
-    within = [s for p, s in enumerate(per_pair, start=1) if p not in cross]
-    crossv = [s for p, s in enumerate(per_pair, start=1) if p in cross]
+    return _temporal_summary(per_pair, [p in cross for p in range(1, T)])
+
+
+def _unit_frame(frame: torch.Tensor) -> torch.Tensor:
+    """(C, H, W) → float64 unit vectors per pixel (Exp 2: F.normalize along dim=1 of (T, C, H, W))."""
+    return F.normalize(frame.double(), dim=0)
+
+
+def _pair_cosine(prev: torch.Tensor, cur: torch.Tensor) -> float:
+    """Two unit frames (C, H, W) → per-pixel cosine (H, W) → mean over pixels."""
+    return (prev * cur).sum(dim=0).mean().item()
+
+
+def _temporal_summary(per_pair: List[float], is_cross: List[bool]) -> Dict:
+    within = [s for s, c in zip(per_pair, is_cross) if not c]
+    crossv = [s for s, c in zip(per_pair, is_cross) if c]
     return {
         "all": float(np.mean(per_pair)),
         "within": float(np.mean(within)) if within else None,
         "cross": float(np.mean(crossv)) if crossv else None,
         "per_pair": per_pair, "n_pairs": len(per_pair), "n_cross": len(crossv),
     }
+
+
+class TemporalCosineStream:
+    """
+    temporal_cosine computed chunk by chunk (T05): the same per-pair math, float64, per pixel.
+    Only the previous frame is kept, so peak extra memory ≈ 2 frames in float64, not the whole clip.
+
+        s = TemporalCosineStream()
+        for chunk in chunks:                                  # in temporal order
+            s.update(out.features, new_chunk=chunk.meta["chunk_id"] > 0)
+        r = s.result()                                        # same keys as temporal_cosine
+
+    update(feats (t, C, H, W), new_chunk): the pair (previous frame, feats[0]) is "cross" if new_chunk.
+    new_chunk is ignored on the first update (no previous frame).
+    """
+
+    def __init__(self):
+        self.prev: Optional[torch.Tensor] = None   # (C, H, W) float64 unit frame, on the input device
+        self.per_pair: List[float] = []
+        self.is_cross: List[bool] = []
+
+    def update(self, feats: torch.Tensor, new_chunk: bool) -> None:
+        if feats.ndim != 4 or feats.shape[0] < 1:
+            raise ValueError(f"feats must be (t>=1, C, H, W), got {tuple(feats.shape)}")
+        if self.prev is not None and self.prev.shape != feats.shape[1:]:
+            raise ValueError(f"frame shape changed: {tuple(self.prev.shape)} → {tuple(feats.shape[1:])}")
+        for t in range(feats.shape[0]):
+            cur = _unit_frame(feats[t])
+            if self.prev is not None:
+                self.per_pair.append(_pair_cosine(self.prev, cur))
+                self.is_cross.append(bool(new_chunk) and t == 0)
+            self.prev = cur
+
+    def result(self) -> Dict:
+        if not self.per_pair:
+            raise ValueError("need at least 2 frames in total")
+        return _temporal_summary(list(self.per_pair), list(self.is_cross))
 
 
 def gap_cosine_fidelity(lr: torch.Tensor, hr: torch.Tensor) -> Dict:

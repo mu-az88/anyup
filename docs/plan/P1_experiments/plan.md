@@ -97,5 +97,6 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | done | `T02_video_reader.md` |
 | T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | in progress | `T03_upsampler_wrapper.md` |
 | T04 | Shared DAVIS utilities + metrics module (official J&F, temporal cosine, fidelity, mIoU, paired stats, results I/O) | A.3 + A.4 | done | `T04_davis_metrics.md` |
-| T05 | Refactor experiment notebooks to use shared backbones, upsamplers, DAVIS utils, metrics | A.2+ | todo (not yet created) | — |
+| T05 | Refactor Exp 2 + Exp 3 (DAVIS) onto shared backbones, upsamplers, DAVIS utils, metrics (+ `LEGACY` regression flag) | A.2+ | in progress | `T05_exp2_exp3_refactor.md` |
+| T06 | Refactor Exp 1 (ADE20K linear probe) onto the shared modules | A.2+ | todo (not yet created) | — |
 | — | Reproducibility (seeds, configs; results I/O is in T04) | A.5 | not yet created | — |

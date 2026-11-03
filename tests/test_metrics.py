@@ -21,7 +21,8 @@ import torch.nn.functional as F
 from scipy import stats
 
 from anyup.metrics import (_one_hot, compute_miou, db_statistics, eval_clip_jf, gap_cosine_fidelity,
-                           paired_stats, save_results, summarize_jf, temporal_cosine, update_conf_mat)
+                           paired_stats, save_results, summarize_jf, temporal_cosine, update_conf_mat,
+                           TemporalCosineStream)
 
 SEED = 0
 N, H, W = 5, 32, 48   # ↓ tiny clip: 5 frames (3 scored), 32×48 masks; F tolerance = ceil(0.008·diag) = 1 px
@@ -177,6 +178,46 @@ def test_temporal_cosine_errors():
         temporal_cosine(torch.randn(1, 4, 2, 2))
     with pytest.raises(ValueError, match="boundaries"):
         temporal_cosine(torch.randn(3, 4, 2, 2), boundaries=[3])
+
+
+def _stream(chunks):
+    s = TemporalCosineStream()
+    for k, c in enumerate(chunks):
+        s.update(c, new_chunk=k > 0)
+    return s.result()
+
+
+@pytest.mark.parametrize("sizes", [[8, 8, 8, 1], [3], [1, 4], [2, 1, 1]])
+def test_temporal_cosine_stream_equals_full(sizes):
+    g = torch.Generator().manual_seed(SEED)
+    chunks = [torch.randn(n, 16, 8, 8, generator=g) for n in sizes]
+    bounds, pos = [], 0
+    for k, c in enumerate(chunks):                       # as anyup.video.chunk_boundaries
+        if k > 0:
+            bounds.append(pos)
+        pos += c.shape[0]
+    ref = temporal_cosine(torch.cat(chunks), boundaries=bounds)
+    got = _stream(chunks)
+    assert got == ref                                    # exact: same per-pair values, same means
+
+
+def test_temporal_cosine_stream_flip_example():
+    f = torch.randn(8, 6, 6)
+    r = _stream([torch.stack([f, f]), torch.stack([-f, -f])])   # pairs +1 | -1 (cross) | +1
+    assert r["per_pair"] == pytest.approx([1.0, -1.0, 1.0], abs=1e-12)
+    assert r["within"] == pytest.approx(1.0, abs=1e-12) and r["cross"] == pytest.approx(-1.0, abs=1e-12)
+
+
+def test_temporal_cosine_stream_single_chunk_and_errors():
+    assert _stream([torch.randn(4, 4, 2, 2)])["cross"] is None
+    with pytest.raises(ValueError, match="2 frames"):
+        _stream([torch.randn(1, 4, 2, 2)])
+    s = TemporalCosineStream()
+    s.update(torch.randn(2, 4, 2, 2), new_chunk=False)
+    with pytest.raises(ValueError, match="shape"):
+        s.update(torch.randn(2, 4, 3, 3), new_chunk=True)
+    with pytest.raises(ValueError):
+        s.update(torch.randn(4, 2, 2), new_chunk=True)
 
 
 # ─── GAP cosine fidelity ────────────────────────────────────────────────────
