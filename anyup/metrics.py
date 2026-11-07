@@ -8,7 +8,7 @@ Shared metrics for AnyUp3D experiments (task T04). Each score is defined once he
         temporal_cosine(feats, boundaries)      # Exp 2
         TemporalCosineStream()                  # Exp 2, chunk by chunk (same math, low memory)
         gap_cosine_fidelity(lr, hr)             # cosine fidelity (VideoMAE viz notebook)
-    ADE20K mIoU (Exp 1):  update_conf_mat / compute_miou
+    ADE20K mIoU (Exp 1):  update_conf_mat / compute_miou, image_miou (per image, for paired tests)
     Paired statistics:    paired_stats(ours, base)
     Results I/O:          save_results(out_dir, rows, summary, config)
 """
@@ -499,6 +499,16 @@ def compute_miou(conf_mat) -> float:
     iou   = tp / (tp + fp + fn + 1e-10)
     valid = conf_mat.sum(1) > 0
     return iou[valid].mean().item() * 100.0
+
+
+def image_miou(logits, targets, num_classes: int = 150, ignore_index: int = 0) -> List[float]:
+    """Per-image mIoU in % (not the dataset mIoU): logits (B, K, H, W), targets (B, H, W) → B values; NaN if no labelled pixel."""
+    scores = []
+    for i in range(logits.shape[0]):
+        conf_mat = torch.zeros(num_classes, num_classes, dtype=torch.long)
+        update_conf_mat(conf_mat, logits[i:i + 1], targets[i:i + 1], num_classes, ignore_index)
+        scores.append(compute_miou(conf_mat))
+    return scores
 
 
 # ---------------------------------------------------------------------------

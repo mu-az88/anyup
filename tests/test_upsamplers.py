@@ -271,3 +271,63 @@ def test_arch_mismatch_raises(tmp_path):
 def test_unknown_arch_arg_raises(ckpt_with_tstage):
     with pytest.raises(TypeError, match="unknown AnyUp3D arch"):
         UpsamplerLoader.load("anyup3d", ckpt_path=ckpt_with_tstage, device="cpu", window=4)
+
+
+# ─── forward_images (T06) ───────────────────────────────────────────────────
+
+B = 3                             # ↓ tiny image batch (CPU speed); AnyUp cost grows with B·GH·GW
+
+
+def _image_upsamplers(ckpt, weights):
+    return {"bilinear": UpsamplerLoader.load("bilinear", device="cpu"),
+            "anyup2d": UpsamplerLoader.load("anyup2d", device="cpu", weights=weights),
+            "anyup3d": UpsamplerLoader.load("anyup3d", ckpt_path=ckpt, device="cpu", **SMALL_ARCH)}
+
+
+def _one_image(chunk, i):
+    meta = dict(chunk.meta, t_out=1, frame_index=[0])
+    return BackboneOutput(features=chunk.features[i:i + 1], guide=chunk.guide[i:i + 1], meta=meta)
+
+
+@pytest.mark.parametrize("name", ["bilinear", "anyup2d", "anyup3d"])
+def test_forward_images_equals_per_image(ckpt_with_tstage, anyup2d_weights, name):
+    up = _image_upsamplers(ckpt_with_tstage, anyup2d_weights)[name]
+    chunk = make_chunk(t=B)
+    res = up.forward_images(chunk)
+    assert res.features.shape == (B, C, GH, GW)
+    assert res.meta["image_batch"] is True and res.meta["upsampler"] == name
+    ref = torch.cat([up(_one_image(chunk, i)).features for i in range(B)])   # forward at T=1 = one image
+    rel, cos = rel_cos(ref, res.features)
+    assert rel < REL_TOL and cos > MIN_COS
+
+
+@pytest.mark.parametrize("name", ["bilinear", "anyup2d", "anyup3d"])
+def test_forward_images_never_mixes_images(ckpt_with_tstage, anyup2d_weights, name):
+    up = _image_upsamplers(ckpt_with_tstage, anyup2d_weights)[name]
+    chunk = make_chunk(t=B)
+    other = make_chunk(t=B)
+    other.features[1] += 5.0
+    other.guide[1] += 5.0
+    a, b = up.forward_images(chunk).features, up.forward_images(other).features
+    rel, _ = rel_cos(a[[0, 2]], b[[0, 2]])
+    assert rel < REL_TOL                                   # images 0 and 2 unaffected by image 1
+
+
+def test_forward_images_differs_from_forward_for_anyup3d(anyup3d):
+    chunk = make_chunk(t=B)
+    assert not torch.allclose(anyup3d(chunk).features, anyup3d.forward_images(chunk).features)
+
+
+def test_forward_images_mismatched_batch_raises(anyup3d):
+    chunk = make_chunk(t=B)
+    chunk.guide = chunk.guide[:2]
+    with pytest.raises(ValueError):
+        anyup3d.forward_images(chunk)
+
+
+def test_window_t_has_no_effect_at_t1(ckpt_with_tstage):
+    """T06 finding H: at T=1 the temporal mask is always open, so window_t can't change Exp 1."""
+    chunk = make_chunk(t=B)
+    outs = [UpsamplerLoader.load("anyup3d", ckpt_path=ckpt_with_tstage, device="cpu", window_t=wt, **SMALL_ARCH)
+            .forward_images(chunk).features for wt in (3, 4)]
+    assert torch.equal(outs[0], outs[1])

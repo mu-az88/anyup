@@ -21,7 +21,7 @@ import torch.nn.functional as F
 from scipy import stats
 
 from anyup.metrics import (_one_hot, compute_miou, db_statistics, eval_clip_jf, gap_cosine_fidelity,
-                           paired_stats, save_results, summarize_jf, temporal_cosine, update_conf_mat,
+                           image_miou, paired_stats, save_results, summarize_jf, temporal_cosine, update_conf_mat,
                            TemporalCosineStream)
 
 SEED = 0
@@ -309,6 +309,30 @@ def test_paired_stats_all_tied_and_errors():
     assert r["sign_p_two_sided"] is None and r["wilcoxon_p_two_sided"] is None
     with pytest.raises(ValueError):
         paired_stats([1.0, 2.0], [1.0])
+
+
+# ─── per-image mIoU (T06) ───────────────────────────────────────────────────
+
+def test_image_miou_matches_per_image_conf_mat():
+    g = torch.Generator().manual_seed(SEED)
+    K, B_ = 6, 3
+    logits = torch.randn(B_, K, 8, 8, generator=g)
+    targets = torch.randint(0, K + 1, (B_, 8, 8), generator=g)
+    got = image_miou(logits, targets, num_classes=K)
+    assert len(got) == B_
+    for i in range(B_):
+        cm = torch.zeros(K, K, dtype=torch.long)
+        update_conf_mat(cm, logits[i:i + 1], targets[i:i + 1], num_classes=K)
+        assert got[i] == compute_miou(cm)
+
+
+def test_image_miou_perfect_and_unlabelled():
+    K = 4
+    targets = torch.tensor([[[1, 2], [3, 4]], [[0, 0], [0, 0]]])    # image 1: ignore only
+    logits = F.one_hot((targets - 1).clamp(min=0), K).permute(0, 3, 1, 2).float()
+    got = image_miou(logits, targets, num_classes=K)
+    assert got[0] == pytest.approx(100.0)
+    assert math.isnan(got[1])
 
 
 # ─── results I/O ────────────────────────────────────────────────────────────

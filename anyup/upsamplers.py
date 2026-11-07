@@ -9,6 +9,9 @@ One entry point, one class per upsampler, one call per T02 chunk:
         res.features                                  # (T, C, H, W) on the chunk's device
         res.meta                                      # chunk meta + upsampler keys
 
+Unrelated images (T06): up.forward_images(chunk) reads T as a batch of B images, each its own
+one-frame clip. Use it for image datasets; `up(chunk)` would treat them as consecutive frames.
+
 Inputs are used as given: raw backbone features (AnyUp normalizes internally) and the
 ImageNet-normalized guide produced by the backbone adapter (T01). AnyUp3D gets one
 chunk per call, with no context across chunk boundaries (T02 Q13).
@@ -152,11 +155,23 @@ class Upsampler(nn.Module):
     def _upsample(self, feats: torch.Tensor, guide: torch.Tensor, out_hw: Tuple[int, int]) -> torch.Tensor:
         raise NotImplementedError
 
+    def _upsample_images(self, feats: torch.Tensor, guide: torch.Tensor, out_hw: Tuple[int, int]) -> torch.Tensor:
+        raise NotImplementedError
+
     def _extra_meta(self) -> Dict:
         return {}
 
-    @torch.no_grad()
     def forward(self, chunk: BackboneOutput, output_size: Optional[Size] = None) -> UpsampleOutput:
+        return self._run(chunk, output_size, self._upsample)
+
+    def forward_images(self, chunk: BackboneOutput, output_size: Optional[Size] = None) -> UpsampleOutput:
+        """chunk.features (B, C, h, w), chunk.guide (B, 3, gH, gW): B unrelated images, never mixed."""
+        res = self._run(chunk, output_size, self._upsample_images)
+        res.meta["image_batch"] = True
+        return res
+
+    @torch.no_grad()
+    def _run(self, chunk: BackboneOutput, output_size: Optional[Size], upsample_fn) -> UpsampleOutput:
         feats, guide = chunk.features, chunk.guide
         if feats.ndim != 4 or guide.ndim != 4 or guide.shape[1] != 3 or feats.shape[0] != guide.shape[0]:
             raise ValueError(f"expected features (T, C, h, w) and guide (T, 3, gH, gW) with the same T, "
@@ -166,8 +181,8 @@ class Upsampler(nn.Module):
         #   Dependent: AnyUp3D q_chunk_size (reduce it when this grows).
         out_hw = _to_hw(output_size) if output_size is not None else tuple(guide.shape[-2:])
 
-        out = self._upsample(feats.to(self.device, torch.float32),
-                             guide.to(self.device, torch.float32), out_hw)       # (T, C, H, W)
+        out = upsample_fn(feats.to(self.device, torch.float32),
+                          guide.to(self.device, torch.float32), out_hw)          # (T, C, H, W)
 
         meta = dict(chunk.meta)
         meta.update(upsampler=self.name, output_size=out_hw)
@@ -207,6 +222,11 @@ class AnyUp3DUpsampler(Upsampler):
                          q_chunk_size=self.q_chunk_size)       # guide first → (1, C, T, H, W)
         return out.squeeze(0).permute(1, 0, 2, 3)              # (1, C, T, H, W) → (T, C, H, W)
 
+    def _upsample_images(self, feats, guide, out_hw):
+        out = self.model(guide.unsqueeze(2), feats.unsqueeze(2), output_size=out_hw,   # (B, 3, 1, gH, gW), (B, C, 1, h, w)
+                         q_chunk_size=self.q_chunk_size)       # guide first → (B, C, 1, H, W)
+        return out.squeeze(2)                                  # (B, C, 1, H, W) → (B, C, H, W)
+
     def _extra_meta(self):
         return dict(ckpt_path=self.ckpt_path, ckpt_step=self.ckpt_step,
                     q_chunk_size=self.q_chunk_size, arch=dict(self.arch))
@@ -237,6 +257,9 @@ class AnyUp2DUpsampler(Upsampler):
             outs.append(self.model(guide[t:t + 1], feats[t:t + 1], output_size=out_hw))   # (1, C, H, W)
         return torch.cat(outs, dim=0)                                          # (T, C, H, W)
 
+    def _upsample_images(self, feats, guide, out_hw):
+        return self.model(guide, feats, output_size=out_hw)                    # all B images in one call → (B, C, H, W)
+
     def _extra_meta(self):
         return dict(weights=self.weights)
 
@@ -251,3 +274,5 @@ class BilinearUpsampler(Upsampler):
 
     def _upsample(self, feats, guide, out_hw):
         return F.interpolate(feats, size=out_hw, mode="bilinear", align_corners=False)   # (T, C, h, w) → (T, C, H, W)
+
+    _upsample_images = _upsample   # per image already
