@@ -34,6 +34,7 @@ AnyUp3D extends **AnyUp** (resolution-agnostic 2D feature upsampling) to **video
 - VideoMAE `last_hidden_state` (1, 1568, 768) → reshape (8, 14, 14, 768) → permute (8, 768, 14, 14).
 - Losses and augmentations live in `anyup.data.training` (not `anyup.training`).
 - PyTorch `Conv3d` has no `padding_mode="reflect"`; use the `SpatialReflectConv3d` wrapper (reflect in H/W, replicate in T).
+- Deterministic runs need `CUBLAS_WORKSPACE_CONFIG=":4096:8"` set **before CUDA starts** (first lines of each experiment notebook's Cell 1); `anyup.utils.seed.set_seed` warns if it came too late (T07).
 - DAVIS: download from `https://data.vision.ee.ethz.ch/csergi/share/davis/DAVIS-2017-trainval-480p.zip`. `data.davis-challenge.ch` is unreachable from Colab.
 
 ## Thesis Results (baseline to reproduce)

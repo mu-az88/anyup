@@ -4,6 +4,7 @@ Shared ADE20K utilities for AnyUp3D experiments (task T06).
     root  = prepare_ade20k("/content", drive_zip=".../ADEChallengeData2016.zip")
     pairs = list_pairs(root, "train")                     # [(image path, mask path)], 20,210 (val: 2,000)
     build_feature_cache(bb, pairs, cache_dir, "train", batch_size=16)   # fp16 LR features + uint8 masks
+    cache_meta(cache_dir, "train")["stems_sha1"]                         # data identity for the results config
     ds    = CachedFeats(cache_dir, "train", pairs, size=224)            # → guide, feats, mask
 
 Protocol (old Exp 1): images squashed to size², masks nearest-resized to size², ids 1..150, 0 = ignore.
@@ -66,8 +67,17 @@ def prepare_ade20k(dest: PathLike = "/content", drive_zip: Optional[PathLike] = 
             Path(drive_zip).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(zpath, drive_zip)
     with zipfile.ZipFile(zpath) as z:
+        _check_members(z.namelist(), ADE_DIRNAME)
         z.extractall(dest)
     return root
+
+
+def _check_members(names: List[str], top: str) -> None:
+    """Refuse archives with members outside <top>/ (absolute paths, '..', other folders): dest also holds the repo checkout."""
+    for n in names:
+        parts = Path(n).parts
+        if not parts or parts[0] != top or Path(n).is_absolute() or ".." in parts:
+            raise ValueError(f"unexpected member {n!r} in the ADE20K zip (all members must be under {top}/)")
 
 
 def list_pairs(root: PathLike, split: str) -> List[Pair]:
@@ -148,6 +158,11 @@ def _read_complete_meta(cache_dir: PathLike, split: str) -> Optional[Dict]:
     if masks.stat().st_size != meta["n"] * meta["size"] ** 2:                       # uint8
         return None
     return meta
+
+
+def cache_meta(cache_dir: PathLike, split: str) -> Optional[Dict]:
+    """The cache's meta (n, size, feat_shape, backbone, stems_sha1), or None if the cache is incomplete."""
+    return _read_complete_meta(cache_dir, split)
 
 
 def cache_complete(cache_dir: PathLike, split: str) -> bool:

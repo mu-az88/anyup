@@ -32,6 +32,8 @@ The ideal flow for every task:
 3. **Implement** in small steps, test each, and report results with actual numbers or shapes. Ideally no questions are needed here, but if anything unexpected or ambiguous comes up, **stop and ask** — don't guess. Log new answers in the task file.
 4. **Close out.** Update the task's Implementation Log and status (in the task file and the plan's Task Index). Tell me what's left, what's uncertain, and what I need to verify.
 
+**Skipped things go in `docs/skipped_and_future_concerns.md`.** Whenever I say to skip a check, run, or question, or say I don't know and want to move on, add a row there right away (in any chat, not only the one where it came up): what was skipped, what is unknown, what would go wrong if it is a real problem, and how to check it. Also note the S-ID in the task's Implementation Log. If a result later looks wrong, we review these rows one by one. Follow the rules at the top of that file.
+
 **Keep the task file live during implementation.** The task file must always reflect what is *actually* happening, so that when the task is done it is an accurate report of what was really done, not just what was planned:
 
 - **Changed decision** → update the original answer/design in place and note the change in the Implementation Log (old → new, and why).
@@ -44,6 +46,7 @@ The ideal flow for every task:
 ```
 CLAUDE.md                          ← how we work (this file)
 docs/
+  skipped_and_future_concerns.md   ← everything I chose to skip or couldn't answer (S01, S02, ...)
   context/
     project_context.md             ← always-loaded project facts and gotchas
   plan/

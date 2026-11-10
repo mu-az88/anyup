@@ -353,6 +353,38 @@ def test_save_results_round_trip(tmp_path):
     assert {"torch", "python", "git_commit", "time_utc"} <= set(data["env"])
 
 
+def _git_repo(path):
+    import subprocess
+    run = lambda *a: subprocess.run(["git", "-C", str(path), "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                                    check=True, capture_output=True)
+    path.mkdir()
+    run("init", "-q", "-b", "main")
+    (path / "a.txt").write_text("x")
+    run("add", "a.txt")
+    run("commit", "-q", "-m", "init")
+    return path
+
+
+def test_environment_git_and_packages(tmp_path):
+    from anyup.metrics import ENV_PACKAGES, environment
+    repo = _git_repo(tmp_path / "repo")
+    env = environment(repo)
+    assert len(env["git_commit"]) == 40 and env["git_branch"] == "main" and env["git_dirty"] is False
+    (repo / "untracked.txt").write_text("y")              # e.g. pip's egg-info: not dirty
+    assert environment(repo)["git_dirty"] is False
+    (repo / "a.txt").write_text("changed")                # tracked file modified: dirty
+    assert environment(repo)["git_dirty"] is True
+    assert set(env["packages"]) == set(ENV_PACKAGES)
+    assert env["packages"]["numpy"] == np.__version__
+    assert "cublas_workspace_config" in env
+
+
+def test_environment_outside_git(tmp_path):
+    from anyup.metrics import environment
+    env = environment(tmp_path)
+    assert env["git_commit"] is None and env["git_branch"] is None and env["git_dirty"] is None
+
+
 def test_save_results_rejects_unknown_types(tmp_path):
     with pytest.raises(TypeError):
         save_results(tmp_path, [], {"x": object()}, {})

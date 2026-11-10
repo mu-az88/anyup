@@ -5,7 +5,7 @@
 | Task ID | T06 |
 | Plan | P1 Experiments (`plan.md`), Phase A.2+ (prepares Phase B) |
 | Branch | `experiments-task02` (continued, your choice) |
-| Status | in progress |
+| Status | done (full A100 run skipped → S02) |
 | Depends on | T01 (`dinov2` adapter), T03 (upsamplers), T04 (`update_conf_mat`, `compute_miou`, `paired_stats`, `save_results`) |
 | Blocks | Phase B re-run of Exp 1 |
 
@@ -207,7 +207,7 @@ Colab:
 
 - All pytest pass on Colab.
 - The notebook runs end to end in both modes; legacy checks pass.
-- Full results are on Drive (per-item CSV + summary JSON), with numbers in the Implementation Log.
+- Full results are on Drive (per-item CSV + summary JSON), with numbers in the Implementation Log. _(Skipped by Monzir → `docs/skipped_and_future_concerns.md` S02; the Colab resume check → S01.)_
 
 ## Implementation Log
 
@@ -227,4 +227,30 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - `LEGACY=True`: 14 checks, 0 failed; upsampled max_abs 0, loss |diff| 0, conf-mat 0 cells differ, head max_abs ≤ 1.5e-8. On CPU and noise data, so this checks the logic only. CUDA behavior (Q13) needs the Colab run.
   - `LEGACY=False`: re-running the main cell skips everything with the same results; stopping after epoch 1 and resuming gives the same final mIoU as the uninterrupted run (exact, including the shuffle order). CSV has 24 rows = 4 images × 3 conditions × 2 seeds. mIoU ≈ 0 as expected on random labels.
   - **Bug found and fixed:** Cell 8 crashed formatting a `None` p-value when all pairs tie; added `fmt_p`. Re-run passes.
-- **Waiting for Colab:** pytest, then Step 5.
+- **pytest run 1 (Colab, Python 3.13.16, pytest 8.4.2): `test_ade20k.py` + `test_upsamplers.py` + `test_metrics.py` 76 passed, 0 failed, 1 warning, 15.53 s.** Same result as the local run; the warning is the known 0/0 in `db_eval_iou`. Steps 1–3 done.
+- **Exp 1 `LEGACY=True` run 1 (`USE_T4=True`, batch 4, `Q_CHUNK` 2048, 200 train / 100 val images, 50 steps, seed 42; real DINOv2 and step6500): 14 checks, 0 failed.** Saved to Drive `results/T06/exp1/legacy_T4_step6500_s224_b4_q2048_tr200_va100_e1/`. GPU type, commit, time and peak memory not in the pasted output.
+  - **Upsampled new = old, max_abs = 0**, shape (4, 768, 224, 224), × bilinear / anyup2d / anyup3d (first train batch). Same head init (2 tensors each). The old and new paths use the same model objects.
+
+  | condition | loss max \|diff\| (50 steps) | mIoU new | mIoU old | mIoU \|diff\| | conf-mat cells differing | head max_abs |
+  |---|---|---|---|---|---|---|
+  | bilinear | 4.77e-7 | 6.8880 | 6.8880 | 0 | 0 | 0 |
+  | anyup2d | 2.03e-6 | 7.2969 | 7.2968 | 3.13e-5 | 26 | 8.21e-5 |
+  | anyup3d | 2.38e-6 | 7.1286 | 7.1286 | 1.04e-5 | 12 | 3.23e-6 |
+
+  - Q13 was needed: losses and heads are not bit-identical on CUDA, though all differences are far inside tolerance (loss 1e-4, mIoU 0.01). Bilinear heads are exact, while the AnyUp heads drift slightly; the cause is not established (float noise is the likely one, and only the first batch's features were compared).
+  - INFO, 50-step heads, not results: dataset mIoU bilinear 6.89 / anyup2d 7.30 / anyup3d 7.13; per-image mIoU 26.33 / 28.28 / 27.42 (100 images, 0 dropped). The per-image score is higher because it averages only over the classes in each image, so the two are not comparable.
+  - So on the same cached inputs, the refactored Exp 1 path reproduces the old code: upsampler calls, head, training step, scoring. Image preprocessing and HF vs timm features are outside the check (deliberate changes). Legacy item of Done When met.
+- **Exp 1 `LEGACY=False` smoke run 1 (`USE_T4=True`: batch 4, `Q_CHUNK` 2048, 256 train / 64 val images, 1 epoch, seed 42, seeded shuffle): main loop 71 s, runs end to end.** Only the Cell 6 output was pasted (not the Cell 6 re-run or Cell 8).
+
+  | condition | loss | mIoU | train (256 img) | val (64 img) | peak GPU memory |
+  |---|---|---|---|---|---|
+  | bilinear | 1.4673 | 5.97 | 7 s | 2 s | 1.0 GiB |
+  | anyup2d | 1.3905 | 6.37 | 24 s | 5 s | 2.2 GiB |
+  | anyup3d | 1.4070 | 6.10 | 26 s | 6 s | 1.7 GiB |
+
+  - mIoU values are from 64 steps on 256 images: INFO only.
+  - Memory at batch 4 ≤ 2.2 GiB (AnyUp2D the highest, as it has no query chunking). My estimate, not measured: batch 16 is about 4× the activations, ≈ 9 GiB, so it should fit on an A100.
+  - Time at batch 4 on T4 ≈ 0.1 s per image for AnyUp2D / AnyUp3D. Extrapolated (not measured): full protocol = 182k train + 18k val image passes per condition ≈ 5.5 h per AnyUp condition on a T4; the A100 time is unknown until its first epoch prints.
+- **Skipped by Monzir (2026-11-08):** the Colab resume check + Cell 8 output of the smoke run (→ S01) and the full A100 run (→ S02), both recorded in `docs/skipped_and_future_concerns.md`.
+- **Close-out.** Done When met except the full results (S02): pytest 76 passed on Colab; the notebook ran end to end in both modes on T4; legacy checks 14/14. Status → done (full run skipped); `plan.md` updated.
+  - Left over: S01, S02; the cause of the small AnyUp head drift in the legacy check (float noise is likely, not verified); GPU type and commit of the Colab runs not in the pasted outputs; the `LEGACY` flag stays until Phase B is accepted.

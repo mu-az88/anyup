@@ -325,6 +325,15 @@ def test_forward_images_mismatched_batch_raises(anyup3d):
         anyup3d.forward_images(chunk)
 
 
+def test_checkpoint_hashes_in_meta(anyup3d, ckpt_with_tstage, anyup2d_weights):
+    import hashlib
+    from anyup.upsamplers import file_sha256
+    assert file_sha256(ckpt_with_tstage) == hashlib.sha256(ckpt_with_tstage.read_bytes()).hexdigest()
+    assert anyup3d(make_chunk()).meta["ckpt_sha256"] == file_sha256(ckpt_with_tstage)
+    up2 = UpsamplerLoader.load("anyup2d", device="cpu", weights=anyup2d_weights)
+    assert up2(make_chunk()).meta["weights_sha256"] == hashlib.sha256(anyup2d_weights.read_bytes()).hexdigest()
+
+
 def test_window_t_has_no_effect_at_t1(ckpt_with_tstage):
     """T06 finding H: at T=1 the temporal mask is always open, so window_t can't change Exp 1."""
     chunk = make_chunk(t=B)

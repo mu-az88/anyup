@@ -18,6 +18,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import os
 import platform
 import subprocess
 import warnings
@@ -581,14 +582,36 @@ def _jsonable(x):
     raise TypeError(f"not JSON-serializable: {type(x).__name__}")
 
 
-def environment() -> Dict:
-    """Versions, GPU and git commit of the anyup repo, for the results JSON."""
-    repo = Path(__file__).resolve().parent.parent
+ENV_PACKAGES = ("torchvision", "timm", "transformers", "numpy", "scipy", "scikit-image",
+                "opencv-python", "opencv-python-headless", "pillow", "decord")
+
+
+def _git(repo: Path, *args: str) -> Optional[str]:
     try:
-        commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
-                                capture_output=True, text=True, check=True).stdout.strip()
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
-        commit = None
+        return None
+
+
+def _package_versions() -> Dict[str, Optional[str]]:
+    from importlib import metadata
+    out = {}
+    for name in ENV_PACKAGES:
+        try:
+            out[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            out[name] = None
+    return out
+
+
+def environment(repo: Optional[Union[str, Path]] = None) -> Dict:
+    """
+    Versions, GPU and git state of the anyup repo (default: this file's repo), for the results JSON.
+    git_dirty: tracked files modified (untracked files, e.g. pip's egg-info, don't count); None outside git.
+    """
+    repo = Path(repo) if repo is not None else Path(__file__).resolve().parent.parent
+    commit = _git(repo, "rev-parse", "HEAD")
+    status = _git(repo, "status", "--porcelain", "--untracked-files=no")
     return {
         "time_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "python": platform.python_version(),
@@ -596,6 +619,10 @@ def environment() -> Dict:
         "cuda": torch.version.cuda,
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
         "git_commit": commit,
+        "git_branch": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+        "git_dirty": None if status is None else bool(status),
+        "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
+        "packages": _package_versions(),
     }
 
 

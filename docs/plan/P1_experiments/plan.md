@@ -86,7 +86,7 @@ These are suggestions, to confirm with the supervisor and against the paper's sc
 
 ## Immediate Next Step
 
-T06: refactor Exp 1 (ADE20K linear probe) onto the shared modules (`T06_exp1_refactor.md`, code written, Colab runs pending). T03 stays open only for its 224² A100 regression run (`T03_upsampler_wrapper.md`).
+T07: reproducibility audit + LEGACY removal (`T07_reproducibility.md`), then Phase B. T06 is done except its full A100 run (skipped → `docs/skipped_and_future_concerns.md` S02). T03 stays open only for its 224² A100 regression run (`T03_upsampler_wrapper.md`).
 
 ## Task Index
 
@@ -99,5 +99,5 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | in progress | `T03_upsampler_wrapper.md` |
 | T04 | Shared DAVIS utilities + metrics module (official J&F, temporal cosine, fidelity, mIoU, paired stats, results I/O) | A.3 + A.4 | done | `T04_davis_metrics.md` |
 | T05 | Refactor Exp 2 + Exp 3 (DAVIS) onto shared backbones, upsamplers, DAVIS utils, metrics (+ `LEGACY` regression flag) | A.2+ | done | `T05_exp2_exp3_refactor.md` |
-| T06 | Refactor Exp 1 (ADE20K linear probe) onto the shared modules | A.2+ | in progress | `T06_exp1_refactor.md` |
-| — | Reproducibility (seeds, configs; results I/O is in T04) | A.5 | not yet created | — |
+| T06 | Refactor Exp 1 (ADE20K linear probe) onto the shared modules | A.2+ | done (A100 run skipped → S02) | `T06_exp1_refactor.md` |
+| T07 | Reproducibility audit (shared deterministic seeding, env/versions/git/ckpt hash in results) + LEGACY removal | A.5 | in progress | `T07_reproducibility.md` |

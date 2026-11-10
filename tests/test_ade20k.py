@@ -159,6 +159,15 @@ def test_meta_mismatch_raises(root, tmp_path):
     assert m["backbone"] == "fake_timm" and m["feat_shape"] == [C, S // 14, S // 14]
 
 
+def test_cache_meta(root, tmp_path):
+    pairs = ade20k.list_pairs(root, "train")
+    d = tmp_path / "cache"
+    assert ade20k.cache_meta(d, "train") is None
+    ade20k.build_feature_cache(FakeBackbone(), pairs, d, "train", batch_size=2, num_workers=0)
+    m = ade20k.cache_meta(d, "train")
+    assert m["n"] == N and m["size"] == S and len(m["stems_sha1"]) == 40
+
+
 def test_copy_cache(root, tmp_path):
     pairs = ade20k.list_pairs(root, "train")
     a, b = tmp_path / "a", tmp_path / "b"
@@ -172,3 +181,25 @@ def test_copy_cache(root, tmp_path):
 
 def test_prepare_skips_when_extracted(root, tmp_path):
     assert ade20k.prepare_ade20k(tmp_path, url="http://invalid.invalid/x.zip") == root
+
+
+@pytest.mark.parametrize("bad", ["anyup/model.py", "../evil.txt", "ADEChallengeData2016/../../x", "/etc/x"])
+def test_zip_with_foreign_member_is_refused(tmp_path, bad):
+    import zipfile
+    zpath = tmp_path / "ade.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        z.writestr("ADEChallengeData2016/images/validation/a.jpg", b"x")
+        z.writestr(bad, b"evil")
+    dest = tmp_path / "dest"
+    with pytest.raises(ValueError, match="unexpected member"):
+        ade20k.prepare_ade20k(dest, drive_zip=zpath)
+    assert not (dest / "ADEChallengeData2016").exists()          # nothing extracted
+
+
+def test_clean_zip_extracts(tmp_path):
+    import zipfile
+    zpath = tmp_path / "ade.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        z.writestr("ADEChallengeData2016/images/validation/a.jpg", b"x")
+    root = ade20k.prepare_ade20k(tmp_path / "dest", drive_zip=zpath)
+    assert (root / "images" / "validation" / "a.jpg").exists()

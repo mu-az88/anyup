@@ -19,7 +19,9 @@ chunk per call, with no context across chunk boundaries (T02 Q13).
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch
@@ -130,6 +132,15 @@ def load_anyup3d_checkpoint(path: str) -> Dict:
 # Base class
 # ---------------------------------------------------------------------------
 
+def file_sha256(path) -> str:
+    """SHA-256 hex digest of a file (streamed in 1 MB blocks)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def _to_hw(size: Size) -> Tuple[int, int]:
     return (size, size) if isinstance(size, int) else tuple(size)
 
@@ -214,6 +225,7 @@ class AnyUp3DUpsampler(Upsampler):
         self.model = self._freeze(model)
         self.ckpt_path = str(ckpt_path)
         self.ckpt_step = ckpt.get("global_step")
+        self.ckpt_sha256 = file_sha256(ckpt_path)               # identifies the file, whatever its name (step6000 vs 6500)
 
     def _upsample(self, feats, guide, out_hw):
         feat_vol = feats.permute(1, 0, 2, 3).unsqueeze(0)      # (T, C, h, w)    → (1, C, T, h, w)
@@ -228,7 +240,7 @@ class AnyUp3DUpsampler(Upsampler):
         return out.squeeze(2)                                  # (B, C, 1, H, W) → (B, C, H, W)
 
     def _extra_meta(self):
-        return dict(ckpt_path=self.ckpt_path, ckpt_step=self.ckpt_step,
+        return dict(ckpt_path=self.ckpt_path, ckpt_step=self.ckpt_step, ckpt_sha256=self.ckpt_sha256,
                     q_chunk_size=self.q_chunk_size, arch=dict(self.arch))
 
 
@@ -245,8 +257,11 @@ class AnyUp2DUpsampler(Upsampler):
         self.weights = weights or ANYUP2D_URL
         if weights is None:
             sd = torch.hub.load_state_dict_from_url(ANYUP2D_URL, map_location="cpu", weights_only=True)
+            local = Path(torch.hub.get_dir()) / "checkpoints" / ANYUP2D_URL.rsplit("/", 1)[-1]   # where the hub cached it
         else:
             sd = torch.load(weights, map_location="cpu", weights_only=True)
+            local = weights
+        self.weights_sha256 = file_sha256(local)
         model = AnyUp2D()
         model.load_state_dict(sd, strict=True)
         self.model = self._freeze(model)
@@ -261,7 +276,7 @@ class AnyUp2DUpsampler(Upsampler):
         return self.model(guide, feats, output_size=out_hw)                    # all B images in one call → (B, C, H, W)
 
     def _extra_meta(self):
-        return dict(weights=self.weights)
+        return dict(weights=self.weights, weights_sha256=self.weights_sha256)
 
 
 # ---------------------------------------------------------------------------
