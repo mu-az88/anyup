@@ -118,7 +118,7 @@ GPU_PROFILES = {
 
 ## Done When
 
-- Exp 0 runs end to end on T4 and A100 with every row `ok` or `OOM`, and the sanity checks pass.
+- Exp 0 runs end to end on T4 and A100 with every row `ok` or `OOM`, and the sanity checks pass. _(A100 skipped → S07.)_
 - Results (CSV + JSON) on Drive, numbers in the Implementation Log.
 - Exp 4 → Exp 0 rename done in `plan.md` and `project_context.md`.
 
@@ -133,5 +133,6 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - CPU dry run (scratchpad harness: CUDA events / memory stubbed, random-init weights, sizes 16 / 32, frames 1 / 2, a forced OOM for `q=None` at 32): 22 rows (2 OOM, recorded and skipped correctly), summary + CSV + JSON + plot written. Shape check PASS (20 ok rows). The bilinear-memory check FAILs there only because the stubbed memory counter is constant; it needs the real GPU. Timings on CPU are meaningless.
   - **Parameters (architecture only, so already final): AnyUp3D 1,540,736 (5.88 MiB), AnyUp2D 878,080 (3.35 MiB) → +75.5 %, equal to the thesis.** Check PASS.
 - **Step 2 (docs): Exp 4 → Exp 0** in `plan.md` (thesis table row, naming note, open question answered, "Re-run Exp 0–3", Task Index) and `project_context.md` (experiment list, thesis results line, open question). T01–T07 left as written (Q7).
-- **Waiting for Colab:** T4 run (`USE_T4=True`), then A100.
+- **A100 run skipped by Monzir (no A100 available now) → `docs/skipped_and_future_concerns.md` S07.** Done When item "runs on T4 and A100" reduced to T4 for now.
+- **Waiting for Colab:** T4 run (`USE_T4=True`).
 
