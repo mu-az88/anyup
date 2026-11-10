@@ -88,7 +88,7 @@ These are suggestions, to confirm with the supervisor and against the paper's sc
 
 ## Immediate Next Step
 
-T08 (Exp 0 efficiency), then T09 (HTML documentation of the experiments). The checkpoint comparison is skipped for now (S06). Phase A is done: T01–T07, with T03's 224² A100 run and T06's full A100 run skipped (`docs/skipped_and_future_concerns.md` S02, S03). T06 is done except its full A100 run (skipped → `docs/skipped_and_future_concerns.md` S02). T03 stays open only for its 224² A100 regression run (`T03_upsampler_wrapper.md`).
+**P1 is closed (2026-11-10).** All tasks T01–T09 are done. Open items moved to `docs/skipped_and_future_concerns.md`: A100 runs S02 (Exp 1 full), S03 (T03 224² regression), S07 (Exp 0); checkpoint choice S06; `drift-straight` collapse S08; thesis-gap separation S09; phase closure S10. The next phase (P2, training-pipeline fixes) will be planned in a new chat on a new branch; task IDs continue from T10. Documentation of the P1 experiments: `docs/experiments/experiments.html` (built by `docs/experiments/build_docs.py`).
 
 ## Task Index
 
@@ -98,10 +98,10 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 |---|---|---|---|---|
 | T01 | Unified `BackboneLoader` | A.1 | done | `T01_backbone_loader.md` |
 | T02 | Video reader + chunked backbone runner (all frames, any res/fps) | A.1/A.3 | done | `T02_video_reader.md` |
-| T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | in progress | `T03_upsampler_wrapper.md` |
+| T03 | Unified `Upsampler` wrapper (incl. `window_t` default 4, ckpt loading) | A.2 | done (224² A100 run skipped → S03) | `T03_upsampler_wrapper.md` |
 | T04 | Shared DAVIS utilities + metrics module (official J&F, temporal cosine, fidelity, mIoU, paired stats, results I/O) | A.3 + A.4 | done | `T04_davis_metrics.md` |
 | T05 | Refactor Exp 2 + Exp 3 (DAVIS) onto shared backbones, upsamplers, DAVIS utils, metrics (+ `LEGACY` regression flag) | A.2+ | done | `T05_exp2_exp3_refactor.md` |
 | T06 | Refactor Exp 1 (ADE20K linear probe) onto the shared modules | A.2+ | done (A100 run skipped → S02) | `T06_exp1_refactor.md` |
 | T07 | Reproducibility audit (shared deterministic seeding, env/versions/git/ckpt hash in results) + LEGACY removal | A.5 | done | `T07_reproducibility.md` |
-| T08 | Exp 0 efficiency notebook (params, time, memory; renamed from Exp 4) | B wrap-up | in progress | `T08_exp0_efficiency.md` |
-| T09 | Interactive HTML documentation of Exp 0–3 (pages, steps, code, helper links) | B wrap-up | todo (not yet created) | — |
+| T08 | Exp 0 efficiency notebook (params, time, memory; renamed from Exp 4) | B wrap-up | done (run 1 on a T4; A100 run skipped → S07) | `T08_exp0_efficiency.md` |
+| T09 | Interactive HTML documentation of Exp 0–3 (pages, steps, code, helper links) | B wrap-up | done | `T09_experiments_html_docs.md` |

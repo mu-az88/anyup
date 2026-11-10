@@ -5,7 +5,7 @@
 | Task ID | T03 |
 | Plan | P1 Experiments (`plan.md`), Phase A.2 |
 | Branch | `experiments-task02` (continued from T02, your choice) |
-| Status | in progress |
+| Status | done (224² A100 run skipped → S03) |
 | Depends on | T01 (`BackboneOutput`), T02 (chunk policy, `iter_backbone_chunks`) |
 | Blocks | Notebook refactor (Exp 1–3 on shared backbones + upsamplers) |
 
@@ -156,3 +156,4 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - q_chunk 4096 vs None (INFO): max_abs 3.81e-06, rel 2.73e-07; None 0.90 s / 6250 MiB, 4096 0.66 s / 1698 MiB (3.7× less memory, also faster).
   - **Metric bug in the notebook helper:** reported cosines > 1 (anyup3d 1.0034, anyup2d 1.0027, bilinear 1.00016) for identical or near-identical tensors. Cause: float32 `F.cosine_similarity` over 768·112² ≈ 9.6M values per frame. The PASS results don't depend on it (they require max_abs = 0), but the q_chunk "within tolerance" flag was meaningless. Fix: `compare_rel` computes the cosine in float64 (notebook only; takes effect in the full-size run). Not changed in the closed T02 notebook (its tensors were 768·16² values per frame, values were < 1). **Note for the metrics module (A.4): compute cosine metrics in float64 or per-pixel, never as one float32 dot over a whole frame.**
   - Remaining for T03: the full-size run (`FULL_SIZE=True`, 224², A100). At 224², AnyUp3D with `q_chunk_size=None` needs about 4× the 112² memory (~25 GB); 4096 would fit a T4 but isn't the Exp 2 setting.
+- **Closed with P1 (2026-11-10).** Monzir closed the phase with the 224² A100 regression run still open; it stays in `docs/skipped_and_future_concerns.md` S03 (and S10). Status → done.

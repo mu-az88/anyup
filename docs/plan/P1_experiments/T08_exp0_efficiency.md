@@ -5,7 +5,7 @@
 | Task ID | T08 |
 | Plan | P1 Experiments (`plan.md`), Phase B wrap-up |
 | Branch | `experiments-task02` |
-| Status | in progress |
+| Status | done |
 | Depends on | T03 (upsamplers), T07 (seeding, env/hash in results) |
 | Blocks | T09 (interactive HTML documentation of Exp 0–3) |
 
@@ -118,7 +118,7 @@ GPU_PROFILES = {
 
 ## Done When
 
-- Exp 0 runs end to end on T4 and A100 with every row `ok` or `OOM`, and the sanity checks pass. _(A100 skipped → S07.)_
+- Exp 0 runs end to end on T4 and A100 with every row `ok` or `OOM`, and the sanity checks pass. _(A100 skipped → S07. One run done; the bilinear memory check fails only on the deterministic row, explained in the log.)_
 - Results (CSV + JSON) on Drive, numbers in the Implementation Log.
 - Exp 4 → Exp 0 rename done in `plan.md` and `project_context.md`.
 
@@ -134,5 +134,30 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - **Parameters (architecture only, so already final): AnyUp3D 1,540,736 (5.88 MiB), AnyUp2D 878,080 (3.35 MiB) → +75.5 %, equal to the thesis.** Check PASS.
 - **Step 2 (docs): Exp 4 → Exp 0** in `plan.md` (thesis table row, naming note, open question answered, "Re-run Exp 0–3", Task Index) and `project_context.md` (experiment list, thesis results line, open question). T01–T07 left as written (Q7).
 - **A100 run skipped by Monzir (no A100 available now) → `docs/skipped_and_future_concerns.md` S07.** Done When item "runs on T4 and A100" reduced to T4 for now.
-- **Waiting for Colab:** T4 run (`USE_T4=True`).
+- **Colab run 1 (pasted Cells 5 + 6): 51 rows (3 OOM) in 747 s.** Saved to Drive `results/T08/exp0/A100_main_s224_f8_q4096_sweep/` (`exp0_per_item.csv`, `exp0_summary.json`).
+  - **GPU: Tesla T4** (`env.gpu` in `exp0_summary.json`, checked after Monzir copied the file to `docs/experiments/results/`). The run had `USE_T4=False`, so it used the A100 profile (5 warm-up / 20 repeats instead of 2 / 5) and the run name starts with `A100_`. The numbers are valid T4 numbers (more repeats only tightens the median); only the name is wrong.
+  - Checks: params PASS; output shapes PASS (48 ok rows are (T, 768, S, S)); **bilinear memory FAIL, max gap 6.000 over 11 rows**. Every `fast` bilinear row matches its output tensor exactly (e.g. 224² × 8: 1176.0 MiB = 8·768·224²·4 B; 56² × 4: 36.8 MiB). The only outlier is the `deterministic` main row: 8232.0 MiB = 7 × 1176 MiB, and 173.25 ms vs 9.50 ms. So under `use_deterministic_algorithms`, bilinear `F.interpolate` takes a different, slower path with extra memory. This is probably T07's unexplained bilinear memory jump. Not checked in the PyTorch source (no local torch).
+  - Main row (224², 8 frames, AnyUp3D `q_chunk_size=4096`):
+
+  | mode | upsampler | median ms (IQR) | ms / frame | peak MiB | extra MiB |
+  |---|---|---|---|---|---|
+  | fast | bilinear | 9.50 (0.14) | 1.19 | 1194.4 | 1176.0 |
+  | fast | anyup2d | 604.84 (5.21) | 75.61 | 2402.4 | 2352.0 |
+  | fast | **anyup3d** | 1458.71 (19.65) | 182.34 | 3836.9 | 3786.5 |
+  | deterministic | bilinear | 173.25 (0.45) | 21.66 | 8282.4 | 8232.0 |
+  | deterministic | anyup2d | 668.14 (2.09) | 83.52 | 2402.4 | 2352.0 |
+  | deterministic | **anyup3d** | 1518.94 (6.24) | 189.87 | 3836.9 | 3786.5 |
+
+  - Ratios AnyUp3D / AnyUp2D: params +75.5 % (thesis +75.5 %); `fast` time ×2.41, extra memory ×1.61, total ×1.60; `deterministic` time ×2.27, memory ×1.61. **Thesis: about ×2.7 time, ×10.5 memory.** The time ratio is close; the memory ratio is not.
+  - Thesis-memory hypothesis (not verified, the thesis setting is unknown, finding B): the thesis numbers fit a `q_chunk_size=None` run. 112² × 8 frames, q None: memory 5812.4 / 590.3 = ×9.85, time 409.22 / 158.99 = ×2.57. With query chunking (1024 or 4096) at the same size, memory is ×2.22.
+  - Sweep (fast), AnyUp3D:
+    - OOM at q None for 112² × 16, 224² × 8, 224² × 16. All chunked rows fit; largest 224² × 16, q 4096: 4804 ms, extra 8769 MiB.
+    - q 1024 vs 4096: same memory up to small differences, q 1024 is 3–7 % slower. q None is about as fast as chunked where it fits, but uses up to 4.4× more memory (112² × 8: 5812 vs 1311 MiB).
+    - **Time per frame grows with frames for AnyUp3D only**: 224², q 4096: 133.3 / 187.2 / 300.3 ms per frame at T = 4 / 8 / 16; 56²: 17.9 / 21.3 / 27.5. Bilinear and AnyUp2D are flat per frame (AnyUp2D 224²: 79.7 / 79.8 / 79.7). Likely cause: `CrossAttention3D` runs `nn.MultiheadAttention` over all T·h·w keys with a boolean window mask (`anyup/modules/cross_attention3d.py`), so masked-out keys are still computed and the cost is superlinear in T. Not profiled.
+    - AnyUp2D per frame is flat in T and scales with S² (56²: 10.6, 112²: 19.9, 224²: 79.7 ms).
+  - Deterministic vs fast on the main row: AnyUp2D +10.5 % time, AnyUp3D +4.1 %, memory unchanged; bilinear ×18 time, ×7 memory (above).
+- **Close-out.** Status → done (`plan.md` Task Index updated). Done When: notebook runs end to end, every row `ok` / `OOM`; params and shape checks pass; the bilinear memory check fails only on the deterministic row (explained above, a property of PyTorch's deterministic mode, not of the notebook); results on Drive; rename done.
+  - GPU checked afterwards: Tesla T4 (see above). Open choice for Monzir: keep the `A100_` run name, or re-run with `USE_T4=True` so the name is right. S07 (real A100 run) stays open.
+  - Copied by Monzir into `docs/experiments/results/` for T09: `exp0_summary.json`, `exp0_per_item.csv`.
+  - Left for Phase C (paper efficiency table): the AnyUp3D superlinear cost in T (masked full attention), the q None vs chunked memory trade-off, and the thesis ×10.5 claim (it should be replaced by the measured value with its setting stated).
 
