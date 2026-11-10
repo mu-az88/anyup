@@ -5,7 +5,7 @@
 | Task ID | T07 |
 | Plan | P1 Experiments (`plan.md`), Phase A.5 |
 | Branch | `experiments-task02` (continued, your choice) |
-| Status | in progress |
+| Status | done |
 | Depends on | T04 (`environment`, `save_results`), T05/T06 (experiment notebooks) |
 | Blocks | Phase B (re-runs use the cleaned notebooks) |
 
@@ -134,5 +134,31 @@ _Updated live during implementation. Per step: what changed, files touched, test
 - **Step 2 (code): LEGACY removed from all three notebooks** (script; the scratchpad was cleared between sessions, so the Exp 1 generator was gone: old → new "regenerate Exp 1", why: no generator left; design updated).
   - Removal check (code lines vs `HEAD` = `8d34f11`): Exp 1 463 → 314 lines (166 removed, 17 added/changed), Exp 2 294 → 184 (127 / 17), Exp 3 411 → 208 (221 / 18). **Every added/changed line is a planned edit**: CUBLAS lines, `set_seed` import, run names, `N_CLIPS` comment, config, `clip_source` / `idx` / `clip_idx` simplified to all frames, cell header renumbering. No other new-protocol line changed. No `LEGACY` / `RESULTS` left; all code cells compile.
   - Exp 1 CPU dry run (new scratchpad harness, fake data, `USE_T4=True` with tiny sizes, 2 seeds × 2 epochs, `RUN_VISUALS=True`): Cells 2–7 run; re-running the main cell resumes with the same results; summary JSON has `anyup3d_meta.ckpt_sha256`, `anyup2d_meta.weights_sha256`, `ade20k_stems_sha1` (train / val), `repo_branch`, and env `git_branch`, `git_dirty`, `cublas_workspace_config`, `packages`. Exp 2/3 not dry-run (need DAVIS + backbones): the smoke runs cover them.
-- **Waiting for Colab:** pytest, then the 3 T4 smoke runs.
+- **pytest run 1 (Colab, Python 3.13.16, pytest 8.4.2): `test_ade20k.py` + `test_upsamplers.py` + `test_metrics.py` + `test_seed.py` 93 passed, 0 failed, 0 skipped, 1 warning, 15.44 s.** The CUDA seed test skipped locally runs and passes on the Colab GPU. The warning is the known 0/0 in `db_eval_iou`. Step 1 done.
+- **Exp 1 smoke run 1 (T4, `USE_T4=True`: batch 4, 256 train / 64 val, 1 epoch, seed 42): main loop 83 s, runs end to end.** Only the main-loop output was pasted (no summary / JSON yet).
+
+  | condition | loss | mIoU | train | val | peak | T06 smoke (same settings, before T07) |
+  |---|---|---|---|---|---|---|
+  | bilinear | 1.4673 | 5.97 | 11 s | 2 s | **4.1 GiB** | 1.4673 / 5.97, 7 s, 1.0 GiB |
+  | anyup2d | 1.3905 | 6.37 | 25 s | 6 s | 2.2 GiB | 1.3905 / 6.37, 24 s, 2.2 GiB |
+  | anyup3d | 1.4070 | 6.10 | 31 s | 8 s | 1.7 GiB | 1.4070 / 6.10, 26 s, 1.7 GiB |
+
+  - **Loss and mIoU equal the T06 smoke run at the printed precision** (4 / 2 decimals), so removing LEGACY and switching to deterministic seeding didn't change the Exp 1 path at that level.
+  - One expected warning: `nll_loss2d_forward_out_cuda_template does not have a deterministic implementation` (`warn_only=True`, as T06 Q13 anticipated). Exp 1 training is therefore still not bit-deterministic on CUDA.
+  - **Unexplained: bilinear peak memory 1.0 → 4.1 GiB**; the AnyUp conditions are unchanged. Likely from deterministic algorithms (a different kernel or workspace for the first condition), not verified. Harmless on a T4 at batch 4; the A100 batch-16 estimate (≈ 9 GiB) is still only an estimate.
+  - Runtime +5 to +60 % per condition (bilinear 7 → 11 s, anyup3d 26 → 31 s), consistent with deterministic kernels; one run each, so noisy.
+- **Exp 1 smoke run 1, Cell 6 (summary):** dataset mIoU bilinear 5.97 / anyup2d 6.37 / anyup3d 6.10 (1 seed, std 0); per-image mIoU 21.55 / 23.09 / 22.25 (64 images, 0 dropped). anyup3d vs bilinear per image Δ +0.697, better 38/64, sign p2 0.0722, Wilcoxon p2 0.00277; vs anyup2d Δ −0.846, better 23/64, sign p2 0.0925, Wilcoxon p2 0.00409. INFO only (64 steps). Saved to `results/T06/exp1/T4_step6500_s224_b4_q2048_tr256_va64_e1/` (new name without the `new_` prefix, as Q9).
+- **Exp 2 smoke run 1 (T4, `N_CLIPS=2`): runs end to end; saved to `results/T05/exp2/g224_c16_o8_q4096_n2/`**, its own `_n2` folder, so T05's 30-clip `new_g224_c16_o8_q4096` is no longer at risk (finding E fixed).
+  - Means over the 2 clips (all / within / cross): raw 0.8976 / 0.8943 / 0.9100, bilinear 0.9266 / 0.9241 / 0.9361, anyup2d 0.9321 / 0.9303 / 0.9391, anyup3d 0.9825 / 0.9874 / 0.9636.
+  - **Equal to the T05 smoke run at 4 decimals:** the means of T05's per-clip values (bike-packing, blackswan) are raw 0.8976, bilinear 0.9266, anyup2d 0.9321, anyup3d 0.9825 (all), anyup3d within 0.9874 / cross 0.9636. So LEGACY removal + deterministic seeding left the Exp 2 path unchanged at that precision.
+  - Paired: anyup3d vs raw / bilinear / anyup2d Δ +0.0849 / +0.0559 / +0.0503, improved 2/2, p2 0.5 (minimum at n = 2).
+- **Exp 3 smoke run 1 (T4, `N_CLIPS=2`): ran through to the saved summary JSON** (`time_utc` 12:34:13). Its J&F lines were not pasted, so they are not compared with T05 here.
+- **JSON fields (Exp 2 full JSON + Exp 3 `env` / `anyup3d_meta`, same Colab image):** all new fields are written.
+  - `env`: commit `fe68b70`, `git_branch` experiments-task02, **`git_dirty` false** (so the untracked egg-info files from `pip install -e` are correctly ignored, Q10), `cublas_workspace_config` ":4096:8"; Python 3.13.16, torch 2.14.1+cu130, CUDA 13.0, Tesla T4; packages torchvision 0.29.1+cu130, timm 1.0.31, transformers 5.22.1, numpy 2.4.6, scipy 1.16.3, scikit-image 0.25.2, opencv-python / -headless 5.0.0.93, pillow 11.3.0, decord not installed (`null`; DAVIS frames are JPEG folders, decord isn't needed).
+  - `anyup3d_meta.ckpt_sha256` (`anyup3d_step6500.pth`) = `dbdc32f26e8d5c4021536c875c5249464cd0b9306c3afae0f6eebfa0466149e3`, same in Exp 2 and Exp 3. `anyup2d_meta.weights_sha256` (`anyup_paper.pth`) = `9d035c0f27114a6f32bdd3d8ed93b6cd39dad4b8f8bf94e69fddbfbf022901b2`. Both recorded in `project_context.md`.
+  - Exp 2 config has `RUN_NAME` `g224_c16_o8_q4096_n2`, `repo_branch`, and no `LEGACY` key.
+- **No CUBLAS warning in any of the 3 runs** (Monzir). The only warning was Exp 1's expected `nll_loss2d` one.
+- **ADE20K zip integrity: not checked, by Monzir's choice** ("do not check the zip, it's ok to just use it") → `docs/skipped_and_future_concerns.md` S05. The member check added in Step 1 stays. `davis.download_davis` left unchanged (no member check), also noted in S05.
+- **Close-out.** All Done When items met: pytest 93 passed on Colab; no LEGACY code in the three notebooks; removal check passed; all three ran end to end on T4, with Exp 1 and Exp 2 equal to their pre-T07 smoke runs at the printed precision; S04 + S05 logged; `plan.md` and `project_context.md` updated. Status → done.
+  - Left over: Exp 1 is still not bit-deterministic on CUDA (`nll_loss2d`, warn only); the bilinear peak-memory jump 1.0 → 4.1 GiB in Exp 1 is unexplained; Exp 3's smoke J&F not compared with T05 (not pasted).
 

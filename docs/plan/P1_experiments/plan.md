@@ -9,13 +9,15 @@
 
 ## Existing Experiments (thesis results, the baseline to reproduce)
 
+_Naming (T08): the efficiency experiment is **Exp 0** (formerly Exp 4). In the T01–T07 task files and older notes, "Exp 4" means Exp 0._
+
 | # | What it measures | Thesis result |
 |---|---|---|
 | Exp 1 | Spatial no-regression check: ADE20K linear-probe mIoU, DINOv2 single images (T=1), bilinear vs AnyUp2D vs AnyUp3D | see notebook results (Drive `exp1_results.json`) |
 | (fidelity) | Cosine fidelity of upsampled features (source notebook unconfirmed, see Open Questions) | 0.9899 (step 250) → 0.9913 (step 6,000) |
 | Exp 2 | Adjacent-frame temporal cosine similarity, 30 DAVIS-2017 clips, VideoMAE, AnyUp2D vs AnyUp3D | +0.081 improvement |
 | Exp 3 | Video object segmentation via non-parametric label propagation (DAVIS-2017), zero-shot on Video Swin-T | Weighted J&F 0.266 → 0.347 (+0.081); 27/30 clips improved; the boundary gain (𝓕) is about 2× the region gain (𝓙) |
-| Exp 4 | Efficiency | 1,540,736 params (5.88 MB), +75.5% vs AnyUp2D; about 2.7× slower and about 10.5× more memory |
+| Exp 0 | Efficiency (called Exp 4 in the thesis and in T01–T07) | 1,540,736 params (5.88 MB), +75.5% vs AnyUp2D; about 2.7× slower and about 10.5× more memory |
 
 ### Evaluation details to keep
 
@@ -41,7 +43,7 @@
 _Not needed for T01/T02; parked for later._
 
 - Which notebook produced the cosine fidelity numbers (0.9899 → 0.9913)? Likely `results/VideoMAE features visualization exp/` (250 / 6000 steps). Unconfirmed.
-- Where is the Exp 4 (efficiency) notebook? It's not in the repo.
+- Where is the Exp 4 (efficiency) notebook? It's not in the repo. _(T08: no such notebook exists; only the parameter count is in the VideoMAE viz notebook. Rebuilt as Exp 0, `experiments/exp0_efficiency.ipynb`.)_
 - Canonical checkpoint: step6000 or step6500?
 - Sign-test p-value (30/30) vs Exp 3's 27/30: which result does it belong to? _(T04: p ≈ 9.3×10⁻¹⁰ = 0.5³⁰ exactly, a one-sided sign test at 30/30. 27/30 gives one-sided 4.2×10⁻⁶ / two-sided 8.4×10⁻⁶. So it cannot be the Exp 3 result.)_
 - Cosine fidelity (GAP definition) can't rank upsamplers: bilinear scores 1.000000, above AnyUp2D (0.99989) and AnyUp3D (0.99629) (T04). Keep it only as a sanity check, or replace it with a per-pixel variant?
@@ -64,7 +66,7 @@ The experiments were built separately during the thesis. Backbone loading, model
 
 ### Phase B: Re-verify the thesis results
 
-- Re-run Exp 1–4 on the shared foundation and confirm the numbers match the thesis, or explain the differences. Expected differences: resize method (tensor vs PIL, Swin-T feature cos ≈ 0.993; measured in T01), Swin-T Kinetics input norm (cos ≈ 0.973), Exp 1 (ckpt step500→canonical, DINOv2 via timm wrapper instead of HF, seeded shuffle, T06), Exp 3 (normalized guide), and Exp 2/3 (all frames instead of 16-linspace / every-12th, decided in T02). So Exp 2/3 thesis numbers won't be reproduced exactly; the new numbers replace them. Also from T04: Exp 3 now uses the official J&F protocol (drop first + last frame, per-object aggregation, `_seg2bmap` boundaries; old metric ≈ +0.02 J&F on the same masks), and propagation runs in float32 (Exp 3 propagated float16-cached features). First T04 numbers: bilinear Swin-T J&F 0.127 (official, all frames, 56²) vs 0.266 in the thesis. Several changes are mixed in this gap and must be separated.
+- Re-run Exp 0–3 on the shared foundation and confirm the numbers match the thesis, or explain the differences. Expected differences: resize method (tensor vs PIL, Swin-T feature cos ≈ 0.993; measured in T01), Swin-T Kinetics input norm (cos ≈ 0.973), Exp 1 (ckpt step500→canonical, DINOv2 via timm wrapper instead of HF, seeded shuffle, T06), Exp 3 (normalized guide), and Exp 2/3 (all frames instead of 16-linspace / every-12th, decided in T02). So Exp 2/3 thesis numbers won't be reproduced exactly; the new numbers replace them. Also from T04: Exp 3 now uses the official J&F protocol (drop first + last frame, per-object aggregation, `_seg2bmap` boundaries; old metric ≈ +0.02 J&F on the same masks), and propagation runs in float32 (Exp 3 propagated float16-cached features). First T04 numbers: bilinear Swin-T J&F 0.127 (official, all frames, 56²) vs 0.266 in the thesis. Several changes are mixed in this gap and must be separated.
 - **T05 new-protocol results (30 clips, step6500):** Exp 3 official J&F bilinear 0.1272 / AnyUp2D 0.1543 / **AnyUp3D 0.2308** (61 objects; per-clip AnyUp3D > bilinear 26/30, > AnyUp2D 27/30, Wilcoxon p2 2.1e-5 / 9.2e-6). Exp 2 temporal cosine raw 0.8795 / bilinear 0.9136 / AnyUp2D 0.9188 / **AnyUp3D 0.9694** (+0.0506 vs AnyUp2D, thesis +0.081; 30/30, p2 1.9e-9). Both refactored paths reproduce the old code exactly under `LEGACY=True`, so these gaps come from the protocol/preprocessing changes listed above. To look at in Phase B: the `drift-straight` collapse in Exp 3 (AnyUp3D J&F 0.033 vs bilinear 0.297).
 - Resolve the open checkpoint question (step6500 vs step6000) and fix one canonical checkpoint for the paper.
 
@@ -86,7 +88,7 @@ These are suggestions, to confirm with the supervisor and against the paper's sc
 
 ## Immediate Next Step
 
-T07: reproducibility audit + LEGACY removal (`T07_reproducibility.md`), then Phase B. T06 is done except its full A100 run (skipped → `docs/skipped_and_future_concerns.md` S02). T03 stays open only for its 224² A100 regression run (`T03_upsampler_wrapper.md`).
+T08 (Exp 0 efficiency), then T09 (HTML documentation of the experiments). The checkpoint comparison is skipped for now (S06). Phase A is done: T01–T07, with T03's 224² A100 run and T06's full A100 run skipped (`docs/skipped_and_future_concerns.md` S02, S03). T06 is done except its full A100 run (skipped → `docs/skipped_and_future_concerns.md` S02). T03 stays open only for its 224² A100 regression run (`T03_upsampler_wrapper.md`).
 
 ## Task Index
 
@@ -100,4 +102,6 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | T04 | Shared DAVIS utilities + metrics module (official J&F, temporal cosine, fidelity, mIoU, paired stats, results I/O) | A.3 + A.4 | done | `T04_davis_metrics.md` |
 | T05 | Refactor Exp 2 + Exp 3 (DAVIS) onto shared backbones, upsamplers, DAVIS utils, metrics (+ `LEGACY` regression flag) | A.2+ | done | `T05_exp2_exp3_refactor.md` |
 | T06 | Refactor Exp 1 (ADE20K linear probe) onto the shared modules | A.2+ | done (A100 run skipped → S02) | `T06_exp1_refactor.md` |
-| T07 | Reproducibility audit (shared deterministic seeding, env/versions/git/ckpt hash in results) + LEGACY removal | A.5 | in progress | `T07_reproducibility.md` |
+| T07 | Reproducibility audit (shared deterministic seeding, env/versions/git/ckpt hash in results) + LEGACY removal | A.5 | done | `T07_reproducibility.md` |
+| T08 | Exp 0 efficiency notebook (params, time, memory; renamed from Exp 4) | B wrap-up | in progress | `T08_exp0_efficiency.md` |
+| T09 | Interactive HTML documentation of Exp 0–3 (pages, steps, code, helper links) | B wrap-up | todo (not yet created) | — |

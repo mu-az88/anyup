@@ -15,10 +15,10 @@ AnyUp3D extends **AnyUp** (resolution-agnostic 2D feature upsampling) to **video
 
 - Google Colab (T4 / A100); Google Drive for checkpoints.
 - Repo: `https://github.com/mu-az88/anyup.git`, branch `3Dconv`, cloned to `/content/anyup`.
-- Checkpoints: `run_02/anyup3d_step6500.pth` (or step6000, **unresolved**), `run_01/anyup3d_step10000.pth`.
+- Checkpoints: `run_02/anyup3d_step6500.pth` (or step6000, **unresolved**), `run_01/anyup3d_step10000.pth`. SHA-256 (T07): Drive `results/anyup3d_step6500.pth` = `dbdc32f2…66149e3`; AnyUp2D `anyup_paper.pth` = `9d035c0f…022901b2` (full values in `T07_reproducibility.md`).
 - Datasets: UCF-101 (training), DAVIS-2017 (evaluation), ADE20K (spatial benchmark).
 - Backbones: VideoMAE (`MCG-NJU/videomae-base`, the training backbone), Video Swin-T (torchvision, Kinetics-400), DINOv2 (timm via `anyup/backbone/vit_wrapper.py`).
-- Experiments: Exp 1 = ADE20K linear-probe mIoU (DINOv2, T=1); Exp 2 = DAVIS temporal cosine (VideoMAE); Exp 3 = DAVIS label-propagation J&F (Swin-T per-frame).
+- Experiments: Exp 0 = efficiency (params, time, memory; synthetic inputs); Exp 1 = ADE20K linear-probe mIoU (DINOv2, T=1); Exp 2 = DAVIS temporal cosine (VideoMAE); Exp 3 = DAVIS label-propagation J&F (Swin-T per-frame).
 
 ## Implementation Gotchas (do not break these)
 
@@ -43,11 +43,11 @@ AnyUp3D extends **AnyUp** (resolution-agnostic 2D feature upsampling) to **video
 - Exp 1: ADE20K mIoU (ran with `window_t=3`, step500; needs a re-run).
 - Exp 2: temporal cosine similarity +0.081 across 30 DAVIS-2017 clips.
 - Exp 3: weighted J&F 0.266 → 0.347 (+0.081); 27/30 clips improved; zero-shot on Video Swin-T. Settings: `TAU=0.07`, `TOP_K=7`, `N_LAST_FRAMES=6`; exclude frame 0; official DAVIS boundary metric (`bound_th=0.008`).
-- Exp 4: 1,540,736 params (5.88 MB), +75.5% vs AnyUp2D; about 2.7× slower and about 10.5× more memory.
+- Exp 0 (efficiency; "Exp 4" in the thesis and T01–T07): 1,540,736 params (5.88 MB), +75.5% vs AnyUp2D; about 2.7× slower and about 10.5× more memory.
 
 ## Open Questions
 
 - Which checkpoint is canonical: step6000 or step6500?
 - The sign-test p ≈ 9.3×10⁻¹⁰ is quoted for a 30/30 result, but Exp 3 reports 27/30. Which result does it belong to?
 - SAM 2 is cited as a key baseline but was never evaluated. Evaluate it or remove it.
-- Which notebook produced the cosine fidelity numbers? Where is the Exp 4 notebook?
+- Which notebook produced the cosine fidelity numbers? Where is the Exp 4 notebook? (T08: none exists; rebuilt as Exp 0.)
