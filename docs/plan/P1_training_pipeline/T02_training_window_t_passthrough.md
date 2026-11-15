@@ -100,3 +100,4 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - `docs/plan/P1_experiments/plan.md:32`: inline correction note, in Munther's `_(…)_` style.
   - Check: `tests/test_upsamplers.py` 34 passed; both edited `.py` files parse.
 - Status stays `Q&A` until you OK the remaining steps (cells 3/7, test, Colab check). That work goes on its own branch after the teacher fix merges.
+- **2026-11-15: a Colab save set cell 3 `window_t` 4 → 3** (commit `c3a242e`), without cell 7 passing it to the model, so it had no effect. Reverted with the rest of the Colab saves (`dc63e01`, D-024). Q1's value 3 is applied in Step 2 of this task, together with the cell 7 change.

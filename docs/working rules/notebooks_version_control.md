@@ -35,3 +35,4 @@ Edit the existing notebook on a feature branch. Don't make a copy.
 - **Don't make fixes inside Colab.** Changes made there live only in Colab, and you'd have to copy them back by hand. If you must edit there, save with *File → Save a copy in GitHub* to the same branch, and `git pull` before editing locally again.
 - **Clear outputs before committing.** Saved outputs make diffs huge and hard to review, which is a problem when you're checking changes against `docs/DECISIONS.md`.
 - **Log every change** in `docs/DECISIONS.md` (Date / Branch / Decision / Where / Affects).
+- **Debugging goes into modules, as a habit.** Add useful checks and measurements whenever you can, so problems are easy to isolate. Put them in an `anyup/` module with a test (training: the monitor, T05_training), and call them from the notebook. Don't keep them as pasted cells: temporary debug cells must never be saved into the notebook (D-024).

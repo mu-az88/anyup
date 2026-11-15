@@ -244,3 +244,35 @@ Entry format:
   The teacher fix is **done** and ready to merge into `main` (after `3Dconv` → `main`, D-008).
 - **Where:** Colab only; `teacher_16frame_plan.md` header note and `plan.md` Task Index updated.
 - **Affects:** Not changed in this branch (the plan says to report, not change): with `val_every_n_steps=1000`, a 50k-step run does about 50 validation passes ≈ 5.3 h, on top of ≈ 35 h of training at ≈ 0.4 it/s. It is a candidate for a later task (fewer or smaller validation passes) if run time matters. Relates to D-021 (T4 throughput) and T04_training (T=8 memory).
+
+## D-024 — Colab saves of the notebook merged, then reverted; debug cells saved as a file
+- **Date:** 2026-11-15
+- **Branch:** fix/teacher-full-16frame-clips
+- **Decision:** Two Colab "Save a copy in GitHub" commits (`c3a242e` 13:25, `0a179db` 14:20, author `mu-az88`) had changed `Train_3D_full.ipynb` on the remote branch, so pushing `5e01baa` was rejected. They added:
+  - a "Cell 0" heading and an empty last cell;
+  - the Step 0 check cell 6.5 and debug cells 12.5/13.5 (first-run version);
+  - saved outputs in 17 cells, plus widget metadata;
+  - `window_t: int = 4` → `3` in cell 3.
+
+  Muaaz chose to keep them in history but not in the notebook:
+  1. Merged them (`ae88541`, no force push).
+  2. Restored the notebook to the reviewed `fa2f7fd` in a new commit (`dc63e01`). The Colab version stays in history as the record of the D-021/D-023 runs.
+  3. `window_t = 3` is done in T02_training (with cell 7 passing it).
+  4. The debug cells (validation-rerun version, D-023) are saved as `scripts/debug/teacher_debug_cells.py`. It's not importable (it wraps notebook globals); you paste it in, and it keeps the measurement method the same for later runs (T04_training before/after).
+- **Where:** branch history (`ae88541`, `dc63e01`); `scripts/debug/teacher_debug_cells.py` (new); `T02_training_window_t_passthrough.md` (log).
+- **Affects:**
+  - The notebook rules (`docs/working rules/notebooks_version_control.md`: no fixes in Colab, clear outputs) are upheld. The notebook equals the version that the debug runs actually tested.
+  - D-012 (`train_3d_full.py`, reference only) is unchanged.
+  - Muaaz wants debugging and monitoring in the real training run as a habit, if it costs no memory and little time. A pluggable module that replaces these pasted cells is to be planned as a task.
+
+## D-025 — Debugging as a habit: rule in `CLAUDE.md`; T05_training (training monitor) planned
+- **Date:** 2026-11-15
+- **Branch:** fix/teacher-full-16frame-clips
+- **Decision:** At Muaaz's request:
+  - **`CLAUDE.md` Coding Rules, two new rules:**
+    1. Whenever useful debugging code can be added (checks, measurements, clear error messages), add it, so every problem is easy to isolate and detect. It must cost no GPU memory and little time, measured.
+    2. Such checks live in importable modules with tests (training: `anyup/data/training/monitor.py`), never as temporary cells saved in a notebook.
+  - **Working rules:** the same rule added to `docs/working rules/notebooks_version_control.md`.
+  - **T05_training planned:** a `TrainMonitor` used in every real training run. It records per-stage it/s, peak allocated/reserved memory, validation time and time left; stops on NaN or infinite losses with context; and explains out-of-memory crashes. One config switch. Status Q&A, 8 questions. It is to be done **before** T04_training, which now measures its before/after through it.
+- **Where:** `CLAUDE.md`, `docs/working rules/notebooks_version_control.md`, `docs/plan/P1_training_pipeline/T05_training_train_monitor.md` (new), `T04_training_shared_image_encoding.md` (Depends on, Step 4), `plan.md` Task Index.
+- **Affects:** It replaces the paste-in debug cells for future runs. `scripts/debug/teacher_debug_cells.py` (D-024) stays as the historical method behind D-021/D-023. D-010 (`CLAUDE.md` edits) is extended. Munther's sessions read the same `CLAUDE.md` rule.

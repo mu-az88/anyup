@@ -20,6 +20,8 @@ I'm Monzir Hafez, an Electrical & Electronic Engineering (Software) student. My 
 - **Reproducibility.** Use fixed seeds, explicit configs, and results saved to disk (per-clip plus summary). No magic numbers buried in code.
 - Keep shapes explicit in comments where tensors are reshaped or permuted, e.g. `# (T, C, h, w)`.
 - Code must run on Google Colab (T4 / A100), with checkpoints on Google Drive.
+- **Debugging is a habit.** Whenever useful debugging code can be added (checks, measurements, clear error messages that say where and why something failed), add it, so every problem is easy to isolate and detect. Only add checks that cost no GPU memory and little time, and measure the overhead.
+- **Checks live in modules, not pasted cells.** Debugging and monitoring for a training or experiment change go into an importable module with a test (training: the monitor in `anyup/data/training/monitor.py`, T05_training). The notebook only switches it on and calls it. Never leave temporary debug cells in a saved notebook.
 
 ## Working Style: Careful, Ask First
 
