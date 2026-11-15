@@ -136,7 +136,7 @@ EXPERIMENTS = {
         "protocol": [
             "The thesis run used the step500 checkpoint; Exp 1 now uses step6500.",
             "DINOv2 is loaded through the repository's timm wrapper instead of Hugging Face, and the training data order is seeded.",
-            "The thesis run set `window_t=3` (training used 4); this has no effect at T = 1, since `window_t` only enters the temporal attention mask (verified in T06).",
+            "The thesis run set `window_t=3` (the wrapper now uses 4; training never set it, S13); this has no effect at T = 1, since `window_t` only enters the temporal attention mask (verified in T06).",
             "Three seeds of three epochs each, with paired statistics over images and over seeds.",
         ],
         "thesis": [

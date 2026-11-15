@@ -20,6 +20,8 @@ I'm Monzir Hafez, an Electrical & Electronic Engineering (Software) student. My 
 - **Reproducibility.** Use fixed seeds, explicit configs, and results saved to disk (per-clip plus summary). No magic numbers buried in code.
 - Keep shapes explicit in comments where tensors are reshaped or permuted, e.g. `# (T, C, h, w)`.
 - Code must run on Google Colab (T4 / A100), with checkpoints on Google Drive.
+- **Debugging is a habit.** Whenever useful debugging code can be added (checks, measurements, clear error messages that say where and why something failed), add it, so every problem is easy to isolate and detect. Only add checks that cost no GPU memory and little time, and measure the overhead.
+- **Checks live in modules, not pasted cells.** Debugging and monitoring for a training or experiment change go into an importable module with a test (training: the monitor in `anyup/data/training/monitor.py`, T05_training). The notebook only switches it on and calls it. Never leave temporary debug cells in a saved notebook.
 
 ## Working Style: Careful, Ask First
 
@@ -46,6 +48,7 @@ The ideal flow for every task:
 ```
 CLAUDE.md                          ← how we work (this file)
 docs/
+  DECISIONS.md                     ← decisions & modifications log (D-001, D-002, ...), used alongside the task files
   skipped_and_future_concerns.md   ← everything I chose to skip or couldn't answer (S01, S02, ...)
   context/
     project_context.md             ← always-loaded project facts and gotchas
@@ -55,13 +58,19 @@ docs/
       plan.md                      ← big picture for the plan + Task Index table
       T01_backbone_loader.md       ← one file per task (current step)
     P2_<name>/ ...                 ← next plan, e.g. training-pipeline fixes
+    P1_training_pipeline/          ← Muaaz's plans: P<N>_training_<name>/
+      plan.md                      ← big picture + Task Index (same format)
+      T01_training_<name>.md       ← Muaaz's tasks: TNN_training_<name>.md
 ```
 
 - **Plans** are numbered `P1, P2, ...` in order of work: P1 experiments → P2 training-pipeline fixes → P3 scaling data and backbones.
 - **Tasks** are numbered `T01, T02, ...` **globally** (never reused, P2 continues from the last P1 number). File name: `TNN_<snake_case_name>.md`.
+- **Muaaz's numbering is separate:** his plans are `P1_training`, `P2_training`, … (folder `docs/plan/P<N>_training_<name>/`) and his tasks `T01_training`, `T02_training`, … (file `TNN_training_<snake_case_name>.md`), numbered across all of his plans. The two sequences never share or reuse a number. Same template, Task Index format and status values for both. S-IDs in `docs/skipped_and_future_concerns.md` stay one shared sequence.
 - **Status** values: `todo` → `Q&A` → `in progress` → `done` (or `blocked`). Keep the task file and the plan's Task Index in sync.
+- **Decisions log:** every modification also gets an entry in `docs/DECISIONS.md` (Date / Branch / Decision / Where / Affects). Check earlier entries for anything it overrides or contradicts, and note that under **Affects**. A task file holds that task's Q&A and Implementation Log; `DECISIONS.md` is the record across tasks and branches.
 - `docs/colab_training_guide.md` and `docs/training_guide.md` are older reference guides, not part of the plan.
-- **One git branch per task.** I create, commit, push and merge the branch myself. Its name goes in the task file's `Branch` field. Colab check notebooks clone that branch (`REPO_BRANCH`) and must switch an existing `/content/anyup` clone to it (fetch + checkout), not just `git pull`. You don't commit; you tell me what to commit when the changes are done.
+- **Committing:** the assistant does not commit until the developer explicitly says so, for example "commit the changes" or "go ahead and commit". The word "commit" must be in the request, and the context must mean committing now. Otherwise, tell the developer what is ready to commit.
+- **One git branch per task.** I create, push and merge the branch myself. Its name goes in the task file's `Branch` field. Colab check notebooks clone that branch (`REPO_BRANCH`) and must switch an existing `/content/anyup` clone to it (fetch + checkout), not just `git pull`.
 
 ## Writing Style (paper and reports)
 

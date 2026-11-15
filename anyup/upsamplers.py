@@ -38,13 +38,15 @@ ANYUP2D_URL = "https://github.com/wimmerth/anyup/releases/download/checkpoint/an
 
 # AnyUp3D architecture as trained (Train_3D_full.ipynb TrainConfig; Exp 2 Cell 1).
 # window_t is NOT stored in the checkpoint: a wrong value loads silently with strict=True.
+# Training never passed window_t (model default: None, then 3); with <= 4 tubelets in training all values
+# act the same, so 4 here is an evaluation choice, not the trained value (S13, T02_training).
 ANYUP3D_ARCH = dict(
     input_dim=3,
     qk_dim=128,           # ↓ attention width; must match the checkpoint (strict load fails otherwise)
     kernel_size=1,
     kernel_size_lfu=5,    # mandatory 5 (LFU kernel); must match the checkpoint
     window_ratio=0.1,     # ↓ spatial attention window (fraction of the grid) → attention memory; not in the checkpoint
-    window_t=4,           # ↓ temporal attention window (frames) → attention memory; not in the checkpoint, training used 4
+    window_t=4,           # ↓ temporal attention window (tubelets, |Δt| ≤ window_t) → attention memory; not in the checkpoint; eval choice, not the trained value (S13)
     num_heads=4,          # must divide qk_dim
     t_k=3,                # temporal conv kernel; must match the checkpoint
 )

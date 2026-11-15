@@ -11,8 +11,8 @@ Fixtures
 Two ways to supply checkpoints (in order of priority):
   1. Pytest CLI options:
        pytest tests/test_weight_loading.py \
-           --ckpt2d anyup_multi_backbone.pth \
-           --ckpt3d anyup3d_init.pth
+           --ckpt2d weights/anyup_multi_backbone.pth \
+           --ckpt3d weights/anyup3d_init.pth
   2. Environment variables:  ANYUP_CKPT_2D  /  ANYUP_CKPT_3D
 
 If neither checkpoint is reachable the entire module is skipped cleanly.
