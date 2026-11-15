@@ -1,5 +1,5 @@
 %% ============================================================
-%%  CHAPTER 2 — THEORETICAL BACKGROUND
+%%  CHAPTER 2, THEORETICAL BACKGROUND
 %%  Paste this into your thesis after \chapter{Theoretical
 %%  Background and Literature Review} and before Part II.
 %%
@@ -10,7 +10,7 @@
 %% ============================================================
 \chapter{THEORETICAL BACKGROUND AND LITERATURE REVIEW}
 
-\section*{PART I -- THEORETICAL BACKGROUND}
+\section*{PART I: THEORETICAL BACKGROUND}
 \addcontentsline{toc}{section}{PART I -- THEORETICAL BACKGROUND}
 
 This part establishes the theoretical foundation of the project.
@@ -186,7 +186,7 @@ They typically leverage the Vision Transformer architecture and
 produce rich semantic features that capture high-level
 information about image content.
 
-Two prominent examples are DINO~\cite{caron2021dino} and CLIP~\cite{radford2021clip}\@.
+Two prominent examples are DINO (self-DIstillation with NO labels)~\cite{caron2021dino} and CLIP~\cite{radford2021clip}\@.
 DINO is a self-supervised learning method that trains Vision
 Transformers without requiring labeled data.
 It learns meaningful representations by encouraging consistency
@@ -294,11 +294,11 @@ Given any continuous coordinate as input, the network outputs
 the corresponding value at that location, allowing the
 representation to be queried at arbitrary resolutions.
 
-Chen et al.\ (2021) applied this principle to image
+Chen et al.~\cite{liif} applied this principle to image
 super-resolution in the Local Implicit Image Function (LIIF).
 An encoder produces a low-resolution feature grid from the
 input image.
-A decoder — implemented as a Multi-Layer Perceptron (MLP) —
+A decoder, implemented as a Multi-Layer Perceptron (MLP), 
 then takes a target coordinate and the features of its
 surrounding grid cells as input, and outputs the predicted value
 at that continuous coordinate.
@@ -310,9 +310,10 @@ foundation for subsequent universal upsampling models,
 including AnyUp.
 
 \subsection{The AnyUp Model}
+\label{sec:anyup2d}
 
 AnyUp is a state-of-the-art universal feature upsampling model
-proposed by Wimmer et al.\ (2025).
+proposed by Wimmer et al.\ \cite{anyup}.
 Its primary contribution is the ability to upsample feature maps
 from any Vision Foundation Model backbone to any target
 resolution, without task-specific training or manual tuning for
@@ -357,8 +358,8 @@ proposed in this thesis.
 \subsection{Window-Based Attention for Upsampling}
 
 Rather than applying attention globally across all spatial
-positions — which is computationally prohibitive for
-high-resolution feature maps — window-based attention restricts
+positions, which is computationally prohibitive for
+high-resolution feature maps, window-based attention restricts
 the attention computation to a local neighbourhood around each
 target location.
 For a given query position on the high-resolution grid, only
@@ -386,7 +387,7 @@ variations in the input features can cause the output to vary
 abruptly between adjacent frames, even when the underlying
 visual content changes only slightly.
 This leads to temporal artifacts such as flickering, jittering
-object boundaries, and unstable semantic assignments — all of
+object boundaries, and unstable semantic assignments, all of
 which degrade the quality of downstream video understanding
 tasks.
 
@@ -405,23 +406,29 @@ upsampling pipeline, as described in Chapter~3.
 
 3D Convolution is a direct extension of the standard 2D
 convolution operation into the temporal dimension.
-A 3D convolutional kernel of size $(k \times k \times t)$ slides
-simultaneously across the spatial height and width dimensions
-and the temporal dimension of a video volume
-$(H \times W \times T)$, extracting features that capture both
+A 3D convolutional kernel of size $(t \times k \times k)$ slides
+simultaneously across the temporal dimension and the spatial
+height and width dimensions of a video volume
+$(T \times H \times W)$, extracting features that capture both
 spatial appearance and temporal motion in a single unified
 operation.
 
-This joint spatial-temporal processing is more expressive than
-factorised approaches that apply 2D spatial convolutions and 1D
-temporal convolutions sequentially, as it can capture
+This joint spatial-temporal processing can be more expressive
+than factorised approaches that apply 2D spatial convolutions
+and 1D temporal convolutions sequentially, as it can capture
 correlations between motion and appearance that would otherwise
-be lost.
+be lost, though at a higher parameter and compute cost.
 In the proposed AnyUp3D framework, a 3D convolutional layer
-with a kernel of size $3 \times 3 \times 3$ is applied to the
-stacked feature volume at the early stage of the decoder, before
-spatial upsampling, to extract local spatio-temporal motion
-patterns from the input frame window.
+with a kernel of size $3 \times 1 \times 1$ (temporal $\times$
+height $\times$ width) is applied to the stacked feature volume
+at the early stage of the decoder, before spatial upsampling.
+The kernel is deliberately restricted to the temporal axis:
+spatial context is already supplied by the cross-attention
+mechanism and by the pretrained 2D weights AnyUp3D inherits, so
+the 3D convolution is needed only to aggregate information
+across adjacent frames.
+This keeps the added parameter cost proportional to the temporal
+extent alone.
 
 \subsection{Temporal Attention}
 
@@ -482,7 +489,7 @@ The evaluation is conducted on the DAVIS-2017 benchmark, which
 provides densely annotated video sequences covering a wide range
 of challenging scenarios including fast motion, occlusion, and
 appearance change.
-\section*{PART II -- LITERATURE REVIEW}
+\section*{PART II: LITERATURE REVIEW}
 \addcontentsline{toc}{section}{PART II -- LITERATURE REVIEW}
 
 % ── Introduction ─────────────────────────────────────────────
@@ -526,7 +533,7 @@ thematic groups:
 % ── Group 1 ──────────────────────────────────────────────────
 \subsection{Coordinate-Based and Universal Upsampling}
 
-Chen et al.\ (2020) developed the Local Implicit Image
+Chen et al.\ developed the Local Implicit Image
 Function (LIIF)~\cite{liif} to overcome the fixed-scale
 limitations of discrete image representations in
 super-resolution tasks.
@@ -542,7 +549,7 @@ LIIF established the coordinate-based paradigm that underlies
 all subsequent universal upsampling models, including those
 reviewed below.
 
-Fu et al.\ (2024) introduced FeatUp~\cite{featup}, a
+Fu et al.\ introduced FeatUp~\cite{featup}, a
 task-and-model-agnostic framework that restores lost spatial
 resolution in deep features produced by any Vision Foundation
 Model backbone.
@@ -563,7 +570,7 @@ However, like all image-based methods, it processes each
 frame independently and produces temporally inconsistent
 outputs when applied to video.
 
-Huang et al.\ (2025) introduced LoftUp~\cite{loftup}, a
+Huang et al.\ introduced LoftUp~\cite{loftup}, a
 coordinate-based upsampler designed to extract high-resolution
 features from Vision Foundation Models without manual labels.
 The methodology utilises a cross-attention transformer to fuse
@@ -580,12 +587,12 @@ upsampling more precisely than attention alone, though it
 remains an image-based method with no temporal modeling
 capability.
 
-Wimmer et al.\ (2025) proposed AnyUp~\cite{anyup}, a
+Wimmer et al.\ proposed AnyUp~\cite{anyup}, a
 state-of-the-art universal upsampler designed to function
 across diverse model architectures without task-specific
 tuning.
 The researchers implemented a feature-agnostic window attention
-layer that treats upsampling as a localised re-alignment task,
+that treats upsampling as a localised re-alignment task,
 mapping features from any backbone onto a higher-resolution
 grid.
 While the model proved superior at preserving semantic
@@ -596,7 +603,7 @@ producing flickering artifacts at the feature level.
 This limitation is the direct motivation for the AnyUp3D
 framework proposed in this thesis.
 
-Oquab et al.\ (2024) published DINOv2~\cite{dinov2}, a family
+Oquab et al.\ published DINOv2~\cite{dinov2}, a family
 of self-supervised Vision Transformer models trained on a
 large curated dataset of 142 million images.
 By combining and scaling several pretraining techniques ---
@@ -616,7 +623,7 @@ without task-specific retraining.
 % ── Group 2 ──────────────────────────────────────────────────
 \subsection{Feature Refinement and Structural Denoising}
 
-Wang et al.\ (2019) introduced CARAFE (Content-Aware
+Wang et al.\ introduced CARAFE (Content-Aware
 ReAssembly of FEatures)~\cite{carafe} to replace standard,
 content-blind operators such as bilinear interpolation.
 The authors designed a lightweight kernel prediction module
@@ -632,7 +639,7 @@ feature upsampling, but its kernels are generated from a
 single backbone and cannot be directly applied across
 different backbone architectures.
 
-Yang et al.\ (2024) explored the inherent artifacts of Vision
+Yang et al.\ explored the inherent artifacts of Vision
 Transformers in their work on Denoising Vision
 Transformers~\cite{denoising_vit}.
 By identifying that positional embeddings often cause
@@ -651,7 +658,7 @@ must process them reliably.
 % ── Group 3 ──────────────────────────────────────────────────
 \subsection{Video and Temporal Consistency}
 
-Cheng et al.\ (2023) presented Cutie~\cite{cutie}, a video
+Cheng et al.\ presented Cutie~\cite{cutie}, a video
 object segmentation network that introduces object-level memory
 reading to maintain consistency across frames.
 The model utilises a query-based object transformer to
@@ -660,7 +667,7 @@ high-level semantic tracking while retaining high-resolution
 feature maps.
 Their methodology cleanly separated foreground semantics from
 background distractors, achieving a significant improvement in
-temporal stability on the MOSE dataset compared to previous
+temporal stability on the MOSE dataset (coMplex video Object SEgmentation) compared to previous
 pixel-matching baselines.
 Although Cutie's memory logic is optimised specifically for
 video object segmentation and cannot be easily applied as a
@@ -668,7 +675,7 @@ general-purpose upsampler, its object-level temporal memory
 mechanism serves as an important conceptual reference for the
 temporally-extended 3D cross-attention proposed in this work.
 
-Liu et al.\ (2022) advocated for spatio-temporal locality in
+Liu et al.\ advocated for spatio-temporal locality in
 the Video Swin Transformer~\cite{swin}, extending the Swin
 architecture to the 3D domain.
 By implementing 3D Patch Partitioning and 3D Shifted Window
@@ -684,7 +691,7 @@ processing spatial and temporal dimensions at the feature
 level leads to stronger and more coherent representations
 than applying spatial and temporal operations sequentially.
 
-Zhou et al.\ (2024) developed Upscale-A-Video~\cite{upscale_video}
+Zhou et al.\ developed Upscale-A-Video~\cite{upscale_video}
 to resolve the flickering artifacts common in AI-generated
 video upscaling.
 The project integrated 3D Convolutional layers and Temporal
@@ -700,7 +707,7 @@ combination of 3D convolutions and temporally-extended
 cross-attention as the right architectural choices for video
 feature stabilisation.
 
-Ravi et al.\ (2024) presented Segment Anything Model 2
+Ravi et al.\ presented Segment Anything Model 2
 (SAM 2)~\cite{sam2}, a foundation model for promptable visual
 segmentation in both images and videos.
 SAM 2 extends the original Segment Anything Model to the
@@ -779,7 +786,7 @@ Video Swin~\cite{swin}
   & Video
   & Architecture-Locked
   & Local 3D temporal context
-  & Incompatible with external FM features \\
+  & Incompatible with external VFM features \\
 Upscale-A-Video~\cite{upscale_video}
   & Video
   & Task-Specific
@@ -793,7 +800,7 @@ Cutie~\cite{cutie}
 SAM 2~\cite{sam2}
   & Video
   & Task-Specific
-  & Streaming memory; SOTA on DAVIS
+  & Streaming memory; state-of-the-art on DAVIS
   & Mask-level only; no feature upsampling \\
 \textbf{AnyUp3D (Ours)}
   & \textbf{Video}

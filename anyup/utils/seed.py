@@ -13,6 +13,7 @@ Usage in train.py:
 
 import os
 import random
+import warnings
 
 import numpy as np
 import torch
@@ -40,6 +41,11 @@ def set_seed(seed: int, deterministic: bool = True) -> None:
         torch.cuda.manual_seed_all(seed)      # multi-GPU safety
 
     if deterministic:
+        if "CUBLAS_WORKSPACE_CONFIG" not in os.environ and torch.cuda.is_available() and torch.cuda.is_initialized():
+            # cuBLAS reads the variable when CUDA starts; setting it now has no effect (T07 finding B)
+            warnings.warn("set_seed(deterministic=True): CUDA is already initialized and CUBLAS_WORKSPACE_CONFIG was not set, "
+                          "so cuBLAS stays non-deterministic. Set os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8' "
+                          "before anything starts CUDA (notebooks: first lines of Cell 1).")
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark     = False
         # CUBLAS workspace determinism (PyTorch ≥ 1.11)

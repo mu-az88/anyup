@@ -1,0 +1,172 @@
+{
+  "summary": {
+    "conditions": {
+      "bilinear": {
+        "miou_per_seed": {
+          "42": 5.974596366286278
+        },
+        "miou_mean": 5.974596366286278,
+        "miou_std": 0.0,
+        "history": {
+          "42": [
+            {
+              "epoch": 1,
+              "loss": 1.4672555206343532,
+              "miou": 5.974596366286278,
+              "train_s": 10.535366296768188,
+              "val_s": 2.0249571800231934
+            }
+          ]
+        },
+        "image_miou_mean": 21.551477800295515
+      },
+      "anyup2d": {
+        "miou_per_seed": {
+          "42": 6.373602896928787
+        },
+        "miou_mean": 6.373602896928787,
+        "miou_std": 0.0,
+        "history": {
+          "42": [
+            {
+              "epoch": 1,
+              "loss": 1.3905057199299335,
+              "miou": 6.373602896928787,
+              "train_s": 25.09836435317993,
+              "val_s": 5.900655269622803
+            }
+          ]
+        },
+        "image_miou_mean": 23.094630148625583
+      },
+      "anyup3d": {
+        "miou_per_seed": {
+          "42": 6.0965415090322495
+        },
+        "miou_mean": 6.0965415090322495,
+        "miou_std": 0.0,
+        "history": {
+          "42": [
+            {
+              "epoch": 1,
+              "loss": 1.4070012224838138,
+              "miou": 6.0965415090322495,
+              "train_s": 31.1109938621521,
+              "val_s": 7.695966720581055
+            }
+          ]
+        },
+        "image_miou_mean": 22.248490449874225
+      }
+    },
+    "paired_seeds": {},
+    "paired_images": {
+      "anyup3d_vs_bilinear": {
+        "n": 64,
+        "n_improved": 38,
+        "n_worse": 23,
+        "n_tied": 3,
+        "mean_ours": 22.248490449874225,
+        "mean_base": 21.551477800295515,
+        "mean_delta": 0.6970126495787099,
+        "median_delta": 0.22501293569803238,
+        "sign_p_two_sided": 0.07217743850092258,
+        "sign_p_one_sided": 0.03608871925046129,
+        "wilcoxon_p_two_sided": 0.002774959365039316,
+        "wilcoxon_p_one_sided": 0.001387479682519658,
+        "ttest_p_two_sided": 0.003196367701060152
+      },
+      "anyup3d_vs_anyup2d": {
+        "n": 64,
+        "n_improved": 23,
+        "n_worse": 37,
+        "n_tied": 4,
+        "mean_ours": 22.248490449874225,
+        "mean_base": 23.094630148625583,
+        "mean_delta": -0.8461396987513581,
+        "median_delta": -0.14711101539433002,
+        "sign_p_two_sided": 0.09246098107292373,
+        "sign_p_one_sided": 0.9740530520355393,
+        "wilcoxon_p_two_sided": 0.004091429449165271,
+        "wilcoxon_p_one_sided": 0.9979542852754174,
+        "ttest_p_two_sided": 0.00029645706994512274
+      }
+    },
+    "n_images_scored": 64,
+    "n_images_dropped": 0
+  },
+  "config": {
+    "gpu_profile": "T4",
+    "gpu_name": "Tesla T4",
+    "run_name": "T4_step6500_s224_b4_q2048_tr256_va64_e1",
+    "conditions": [
+      "bilinear",
+      "anyup2d",
+      "anyup3d"
+    ],
+    "seeds": [
+      42
+    ],
+    "batch_size": 4,
+    "q_chunk": 2048,
+    "n_train": 256,
+    "n_val": 64,
+    "num_epochs": 1,
+    "img_size": 224,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "lr_decay_step": 2,
+    "lr_decay_gamma": 0.1,
+    "backbone": "vit_base_patch14_dinov2.lvd142m",
+    "anyup3d_meta": {
+      "ckpt_path": "/content/drive/MyDrive/results/anyup3d_step6500.pth",
+      "ckpt_step": 6500,
+      "ckpt_sha256": "dbdc32f26e8d5c4021536c875c5249464cd0b9306c3afae0f6eebfa0466149e3",
+      "q_chunk_size": 2048,
+      "arch": {
+        "input_dim": 3,
+        "qk_dim": 128,
+        "kernel_size": 1,
+        "kernel_size_lfu": 5,
+        "window_ratio": 0.1,
+        "window_t": 4,
+        "num_heads": 4,
+        "t_k": 3
+      }
+    },
+    "anyup2d_meta": {
+      "weights": "https://github.com/wimmerth/anyup/releases/download/checkpoint/anyup_paper.pth",
+      "weights_sha256": "9d035c0f27114a6f32bdd3d8ed93b6cd39dad4b8f8bf94e69fddbfbf022901b2"
+    },
+    "cache": "/content/drive/MyDrive/results/T06/feat_cache/dinov2_base_s224_tr256_va64",
+    "shuffle": true,
+    "repo_branch": "experiments-task02",
+    "ade20k_stems_sha1": {
+      "train": "aed67c7d5c5927094d5872ee852f66cb3d72f06a",
+      "val": "38564b3a583cec17e133c0297dda54a684243e69"
+    }
+  },
+  "env": {
+    "time_utc": "2026-11-10T11:04:21+00:00",
+    "python": "3.13.16",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "gpu": "Tesla T4",
+    "git_commit": "fe68b70767ce3dfc21edde65941ae584ee6438a2",
+    "git_branch": "experiments-task02",
+    "git_dirty": false,
+    "cublas_workspace_config": ":4096:8",
+    "packages": {
+      "torchvision": "0.29.1+cu130",
+      "timm": "1.0.31",
+      "transformers": "5.22.1",
+      "numpy": "2.4.6",
+      "scipy": "1.16.3",
+      "scikit-image": "0.25.2",
+      "opencv-python": "5.0.0.93",
+      "opencv-python-headless": "5.0.0.93",
+      "pillow": "11.3.0",
+      "decord": null
+    }
+  }
+}

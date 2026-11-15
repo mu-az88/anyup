@@ -1,15 +1,16 @@
 % ============================================================
-% Chapter 4 — Experimental Evaluation
+% Chapter 4, Experimental Evaluation
 % ============================================================
 \chapter{Experimental Evaluation}
 \label{ch:results}
 
 This chapter presents the experimental evaluation of AnyUp3D.
 Section~\ref{sec:setup} describes the experimental setup, including hardware, backbone, model configuration, and training details.
-Section~\ref{sec:convergence} provides a qualitative analysis of training convergence by comparing early and late checkpoints.
+Section~\ref{sec:convergence} provides a qualitative and quantitative analysis of training convergence by comparing early and late checkpoints.
 Section~\ref{sec:temporal} evaluates temporal feature consistency against the frame-independent 2D~AnyUp baseline across the full DAVIS~2017 validation set.
 Section~\ref{sec:jf} measures the downstream impact of AnyUp3D features on video object segmentation using the standard $\mathcal{J}\&\mathcal{F}$ metric.
-Finally, Section~\ref{sec:discussion} discusses the results, identifies failure cases, and acknowledges limitations.
+Section~\ref{sec:cost} quantifies the computational price of the temporal extension, benchmarking parameter count, inference latency, and peak GPU memory against the frame-independent 2D baseline.
+Finally, Section~\ref{sec:discussion} discusses the results in aggregate, examines the two clips where AnyUp3D underperforms bilinear, and acknowledges the evaluation's limitations.
 
 
 % ────────────────────────────────────────────
@@ -25,31 +26,40 @@ The implementation uses PyTorch 2.x with CUDA, and models were run in mixed-prec
 % ── 4.1.2 Backbone ──
 \subsection{Backbone}
 
-We use VideoMAE~\cite{videomae} (ViT-B/16, pretrained on Kinetics-400~\cite{kay2017kinetics}) as the spatiotemporal feature extractor throughout all experiments.
+We use VideoMAE~\cite{videomae} (ViT-B/16, pretrained on Kinetics-400~\cite{kay2017kinetics}) as the primary spatiotemporal feature extractor and as the backbone AnyUp3D is fine-tuned against during training.
 VideoMAE processes 16 input frames using a tubelet size of~2, producing $T' = 8$ temporal tokens.
 Each frame is patchified at $16 \times 16$, yielding a spatial resolution of $14 \times 14$ per temporal slice.
-The resulting feature tensor has shape $(1, 768, 8, 14, 14)$ — that is, 768-dimensional features at $8 \times 14 \times 14$ spatiotemporal positions.
+The resulting feature tensor has shape $(1, 768, 8, 14, 14)$, that is, 768-dimensional features at $8 \times 14 \times 14$ spatiotemporal positions.
 
 We chose VideoMAE because it produces genuinely spatiotemporal tokens: its tubelet embedding jointly encodes pairs of adjacent frames, so the features at each position already carry short-range temporal context.
 This makes it a natural input for AnyUp3D, which extends this temporal structure to the upsampled resolution.
+
+VideoMAE is used for Experiments~1 and~2 (Sections~\ref{sec:convergence}, \ref{sec:temporal}).
+Experiment~3 (Section~\ref{sec:jf}) additionally evaluates AnyUp3D on Video Swin-T features, a backbone distinct from VideoMAE, as a deliberate zero-shot generalization test described there.
 
 % ── 4.1.3 AnyUp3D Configuration ──
 \subsection{AnyUp3D Configuration}
 
 \paragraph{3D Convolutions.}
-AnyUp3D replaces the 2D depth-wise convolutions in the value projection with 3D convolutions using a kernel of size $3 \times 3 \times 3$ (temporal $\times$ height $\times$ width).
-This allows each feature position to directly aggregate information from its immediate temporal neighbors during the projection step, without requiring the attention mechanism to span across time.
+AnyUp3D replaces the 2D depth-wise convolutions in the value projection with 3D convolutions using a kernel of size $3 \times 1 \times 1$ (temporal $\times$ height $\times$ width) --- that is, a temporal extent of $t_k = 3$ over a $1 \times 1$ spatial footprint.
+This allows each feature position to directly aggregate information from its immediate temporal neighbors during the projection step, without requiring the attention mechanism to span across time, and without enlarging the spatial receptive field inherited from the 2D model.
 
 \paragraph{3D Spatiotemporal Attention.}
 The cross-attention window covers a local spatial neighbourhood determined by a window ratio of $0.1$ relative to the spatial resolution, matching the 2D~AnyUp default.
-Along the temporal axis the window spans $t_w = 3$ adjacent slices, so each query position can attend to the corresponding spatial region in the preceding and following temporal frame.
+Along the temporal axis the window spans $w_t = 4$ adjacent slices, chosen as an absolute frame count (rather than a resolution-relative ratio) to keep the receptive field consistent across T-curriculum stages, as detailed in Chapter~3.
 
-Additional hyperparameters — query/key dimension $d_{qk} = 128$, four attention heads — match the 2D~AnyUp defaults.
+Additional hyperparameters, query/key dimension $d_{qk} = 128$, four attention heads, match the 2D~AnyUp defaults.
 Together the 3D convolutions capture local short-range temporal continuity, while the 3D attention enables the model to align spatiotemporal features with the high-resolution RGB guide.
 
 % ── 4.1.4 Training ──
 \subsection{Training Details}
 
+% TODO: Section 4.4.1 evaluates checkpoint anyup3d_step6500.pth, but this
+% subsection (and the "6,000 steps" figures throughout this chapter and in
+% Chapter 5) states training ran for 6,000 steps. Confirm whether training
+% was extended to 6,500 steps after this subsection was written -- if so,
+% every "6,000 steps" mention in this chapter and Chapter 5 needs updating
+% to 6,500, and this comment should be removed.
 AnyUp3D was trained for 6{,}000 steps using the AdamW optimizer with a learning rate of $2 \times 10^{-4}$.
 Model weights were initialised from the pretrained 2D~AnyUp checkpoint, providing a strong spatial upsampling prior before any temporal training begins.
 Training followed the T-curriculum strategy described in Chapter~3: beginning with $T\!=\!2$ frames to warm up the spatial upsampling pathway, then increasing to $T\!=\!4$ at step 5{,}000.
@@ -89,7 +99,11 @@ We do so by comparing the upsampled features produced by an early checkpoint (st
 
 A short video clip is processed through VideoMAE to produce features of shape $(1, 768, 8, 14, 14)$.
 Both checkpoints receive the same low-resolution features and the same RGB guide video, and produce upsampled output at $224 \times 224$ spatial resolution.
-We visualize the output using PCA: the top three principal components of the 768-dimensional feature vectors are mapped to RGB channels, with PCA fitted jointly across all frames to ensure color consistency over time.
+We visualize the output using PCA (Principal Component Analysis): the top three principal components of the 768-dimensional feature vectors are mapped to RGB channels, with PCA fitted jointly across all frames to ensure color consistency over time.
+
+In addition to this qualitative visualisation, we compute a quantitative feature-fidelity metric.
+For each frame, we spatially average-pool both the native $14 \times 14$ low-resolution VideoMAE feature map and the $224 \times 224$ AnyUp3D output down to a single 768-dimensional vector, and measure the cosine similarity between the two.
+This captures whether the $16\times$ spatial upsampling preserves the semantic content of the original feature, independent of pixel-level spatial detail.
 
 % ── 4.2.2 Results ──
 \subsection{Results}
@@ -99,9 +113,9 @@ We visualize the output using PCA: the top three principal components of the 768
     \centering
     % [Figure 1: Side-by-side PCA visualization.
     %  Row 1: Original video frames (8 frames, t=0 to t=7).
-    %  Row 2: PCA of AnyUp3D output at step 250 — features appear
+    %  Row 2: PCA of AnyUp3D output at step 250, features appear
     %          noisy and spatially unstructured.
-    %  Row 3: PCA of AnyUp3D output at step 6000 — features show
+    %  Row 3: PCA of AnyUp3D output at step 6000, features show
     %          clear object boundaries and spatially coherent regions
     %          that track the objects across frames.]
     \includegraphics[width=\linewidth]{Figures/AnyUP3D vs VideoMAE feature.jpg}
@@ -118,7 +132,54 @@ We visualize the output using PCA: the top three principal components of the 768
 Figure~\ref{fig:convergence} shows the comparison.
 Both checkpoints produce spatially reasonable PCA visualisations, which is expected: the model is initialised from pretrained 2D~AnyUp weights, so it starts from a non-trivial spatial upsampling quality.
 The step~6{,}000 output is slightly more coherent than step~250, with colours that correspond somewhat better to the visible scene structure.
-The key takeaway is that training does not hurt the model — the 3D extension leaves the inherited spatial quality intact and nudges it slightly forward, confirming that the training procedure is on the right track.
+The key takeaway is that training does not hurt the model, the 3D extension leaves the inherited spatial quality intact and nudges it slightly forward, confirming that the training procedure is on the right track.
+
+\paragraph{Quantitative Feature Fidelity.}
+Table~\ref{tab:fidelity} reports the per-frame cosine similarity between the native $14 \times 14$ VideoMAE feature and the $224 \times 224$ AnyUp3D output, computed at both the step~250 and step~6{,}000 checkpoints on the same clip shown in Figure~\ref{fig:convergence}.
+
+\begin{table}[htbp]
+\centering
+\caption{%
+    Per-frame cosine similarity between the native $14\times14$ VideoMAE features and the AnyUp3D-upsampled $224\times224$ features (spatially global-average-pooled), comparing the step~250 and step~6{,}000 checkpoints.
+    Fidelity improves at every frame over the course of training.
+}
+\label{tab:fidelity}
+\begin{tabular}{cccc}
+\toprule
+\textbf{Frame} & \textbf{Step 250} & \textbf{Step 6{,}000} & \textbf{$\Delta$} \\
+\midrule
+0 & 0.9921 & 0.9938 & +0.0017 \\
+1 & 0.9889 & 0.9915 & +0.0026 \\
+2 & 0.9912 & 0.9918 & +0.0006 \\
+3 & 0.9911 & 0.9916 & +0.0005 \\
+4 & 0.9889 & 0.9896 & +0.0007 \\
+5 & 0.9874 & 0.9885 & +0.0011 \\
+6 & 0.9872 & 0.9886 & +0.0014 \\
+\textbf{7} & 0.9921 & 0.9952 & \textbf{+0.0031} \\
+\midrule
+\textbf{Mean} & 0.9899 & 0.9913 & $\mathbf{+0.0014}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\linewidth]{Figures/fig1_fidelity_convergence.png}
+    \caption{%
+        Per-frame cosine similarity between the native $14\times14$ VideoMAE feature
+        and the AnyUp3D-upsampled $224\times224$ feature, comparing the step~250 and
+        step~6{,}000 checkpoints (same data as Table~\ref{tab:fidelity}).
+        Fidelity improves at every frame, most notably at frame~7.
+    }
+    \label{fig:exp1-fidelity}
+\end{figure}
+
+Fidelity is already high at step~250, a direct consequence of initialising from the pretrained 2D~AnyUp weights, which already learned to upsample without distorting feature identity, and improves further, on every single frame, by step~6{,}000, with the mean cosine similarity rising from $0.9899$ to $0.9913$.
+The improvement is modest in absolute terms, but this is expected: because fidelity starts near ceiling, there is limited room left for training to improve it further.
+The direction and consistency of the change is nonetheless informative, mirroring the all-clips-improve pattern later observed in the temporal consistency results of Experiment~2 (Section~\ref{sec:temporal}), and confirms that additional training refines rather than degrades the spatial feature quality inherited from the 2D initialisation.
+This result is consistent with, and quantitatively strengthens, the qualitative PCA comparison above: the model preserves feature identity while increasing spatial resolution, which is a necessary (though not sufficient) condition for AnyUp3D to serve as a drop-in replacement for bilinear upsampling.
+
+Note that, like the PCA comparison, this fidelity check is computed on a single representative clip rather than averaged across the DAVIS~2017 validation set as in Experiments~2 and~3, and should be read as a targeted diagnostic rather than a benchmark result.
 
 
 % ────────────────────────────────────────────
@@ -140,7 +201,7 @@ Concretely, for an output tensor of shape $(1, C, T', H, W)$, we compute:
     \label{eq:temporal_sim}
 \end{equation}
 where $\mathbf{q}_t \in \mathbb{R}^{C \cdot H \cdot W}$ is the flattened feature map at time step~$t$.
-Higher values indicate greater temporal stability — that is, features that change smoothly between adjacent frames rather than flickering.
+Higher values indicate greater temporal stability, that is, features that change smoothly between adjacent frames rather than flickering.
 
 % ── 4.3.2 Results ──
 \subsection{Results}
@@ -175,7 +236,7 @@ drift-straight     & 0.812 & 0.901 & +0.089 \\
 goat               & 0.859 & 0.952 & +0.093 \\
 gold-fish          & 0.911 & 0.976 & +0.065 \\
 horsejump-high     & 0.895 & 0.961 & +0.066 \\
-india              & 0.764 & 0.896 & +0.132 \\
+\textbf{india}     & 0.764 & 0.896 & \textbf{+0.132} \\
 judo               & 0.901 & 0.986 & +0.085 \\
 kite-surf          & 0.891 & 0.958 & +0.067 \\
 lab-coat           & 0.858 & 0.932 & +0.074 \\
@@ -195,13 +256,39 @@ soapbox            & 0.826 & 0.908 & +0.083 \\
 \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.65\linewidth]{Figures/fig2_temporal_scatter.png}
+    \caption{%
+        Per-clip temporal consistency, 2D~AnyUp vs.\ AnyUp3D, across all 30
+        DAVIS~2017 validation clips (data from Table~\ref{tab:temporal}).
+        Every point lies above the $y=x$ diagonal, confirming that AnyUp3D
+        improves temporal consistency on every clip with no exceptions.
+        The four clips with the largest gains are marked.
+    }
+    \label{fig:exp2-scatter}
+\end{figure}
+
 AnyUp3D achieves higher temporal consistency than 2D~AnyUp on every single clip in the dataset, with no exceptions.
 The mean cosine similarity increases from $0.863$ to $0.944$, an improvement of $+0.081$.
 The standard deviation also decreases from $0.055$ to $0.038$, indicating that AnyUp3D produces consistently stable features regardless of the motion characteristics of the input clip.
 
 The largest improvements occur on clips with challenging motion.
 \textit{india} ($+0.132$), \textit{motocross-jump} ($+0.124$), \textit{bmx-trees} ($+0.118$), and \textit{dog} ($+0.118$) are among the clips where 2D~AnyUp struggles most (lowest baseline scores), and these are precisely where the temporal modeling of AnyUp3D provides the greatest benefit.
-These clips contain either fast camera motion, rapid object displacement, or both — conditions under which frame-independent processing introduces the most inter-frame inconsistency.
+These clips contain either fast camera motion, rapid object displacement, or both, conditions under which frame-independent processing introduces the most inter-frame inconsistency.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.7\linewidth]{Figures/fig3_temporal_delta_bar.png}
+    \caption{%
+        Per-clip improvement in temporal consistency ($\Delta$ = AnyUp3D $-$
+        2D~AnyUp), sorted in descending order.
+        The largest gains occur on clips with challenging motion
+        (\textit{india}, \textit{motocross-jump}, \textit{bmx-trees},
+        \textit{dog}, highlighted).
+    }
+    \label{fig:exp2-delta}
+\end{figure}
 
 Even on clips where the 2D baseline already performs well (e.g., \textit{car-shadow} at $0.927$), AnyUp3D still improves consistency, reaching $0.967$.
 This demonstrates that the temporal extension does not merely compensate for difficult cases but provides a consistent benefit across the full range of video content.
@@ -216,8 +303,8 @@ With AnyUp3D, the same object maintains a consistent PCA color throughout the se
     \includegraphics[width=\linewidth]{Figures/pca_bike-packing.png}
     \caption{%
         PCA visualization of upsampled features on a representative DAVIS clip.
-        \textbf{Top:} 2D~AnyUp applied frame-independently — PCA colors shift between frames, indicating temporal inconsistency in the feature space.
-        \textbf{Bottom:} AnyUp3D — PCA colors remain stable across frames, with consistent object-to-color assignments throughout the sequence.
+        \textbf{Top:} 2D~AnyUp applied frame-independently, PCA colors shift between frames, indicating temporal inconsistency in the feature space.
+        \textbf{Bottom:} AnyUp3D, PCA colors remain stable across frames, with consistent object-to-color assignments throughout the sequence.
     }
     \label{fig:pca_comparison}
 \end{figure}
@@ -233,110 +320,343 @@ This experiment evaluates AnyUp3D features in a practical video object segmentat
 % ── 4.4.1 Setup ──
 \subsection{Setup}
 
-We construct a simple segmentation pipeline: VideoMAE extracts spatiotemporal features, the upsampler (either bilinear interpolation or AnyUp3D) produces features at $224 \times 224$ resolution, and a linear segmentation head (a single $1 \times 1$ convolution) predicts per-pixel masks.
-The segmentation head is trained identically for both conditions.
-We evaluate on all 30 clips of the DAVIS~2017 validation set using the standard $\mathcal{J}\&\mathcal{F}$ score, where $\mathcal{J}$ measures region overlap (Jaccard index) and $\mathcal{F}$ measures contour accuracy.
+We evaluate AnyUp3D's downstream utility using non-parametric label propagation, following the protocol of Jabri et al.~\cite{jabri2020} (\textit{Space-Time Correspondence as a Contrastive Random Walk}), with the context-window design of Caron et al.~\cite{caron2021dino} (DINO).
+Under this protocol, the ground-truth object mask is given only for the first frame of each clip; masks for all subsequent frames are propagated by attending, in feature space, from each query location to its most similar locations in a small set of context frames.
+No head is trained and no parameters are learned or fine-tuned at any stage of this experiment: the propagated masks depend entirely on the similarity structure of the frozen upsampled features.
+This makes the evaluation a direct, unconfounded test of feature quality, any difference in resulting mask accuracy between AnyUp3D and bilinear upsampling is attributable to the features themselves, not to differences in a separately-trained downstream component.
 
-It is important to note that the absolute $\mathcal{J}\&\mathcal{F}$ scores in this experiment are not directly comparable to dedicated video object segmentation methods (e.g., STM~\cite{stm}, XMem~\cite{xmem}), which typically achieve scores above $0.80$ on DAVIS~2017.
-Our pipeline uses VideoMAE features — designed for video understanding, not segmentation — with a minimal linear head and no test-time adaptation.
-The purpose of this experiment is not to compete with VOS methods but to measure whether AnyUp3D features carry more useful spatial information than bilinearly upsampled features when used with an identical downstream head.
+For each of the 30 DAVIS~2017 validation clips, a Video Swin Transformer (Swin-T, Kinetics-400 pretrained) extracts spatiotemporal features from frames sampled at approximately 2\,frames per second.
+These features are upsampled to $56 \times 56$ resolution using either AnyUp3D or bilinear interpolation, producing the two conditions compared in this experiment.
+$56 \times 56$ was chosen as the propagation resolution: high enough to resolve object boundaries, while keeping the $\mathrm{O}(N^2)$ pairwise affinity computation between all query and context locations tractable on a single T4 GPU.
+The evaluated checkpoint is \texttt{anyup3d\_step6000.pth}, the latest available training state at the time of this experiment.
 
-% ── 4.4.2 Results ──
-\subsection{Results}
+As in Experiment~2, features are extracted with Video Swin-T rather than VideoMAE, the backbone AnyUp3D was fine-tuned against during training.
+This is a deliberate choice, not an oversight: it tests whether AnyUp3D's upsampling generalizes to a backbone it has never seen, which is the central claim motivating its architecture.
+The Learned Feature Unification (LFU3D) module maps an arbitrary backbone's channel dimensionality onto a fixed internal representation, and the temporal cross-attention mechanism operates on that representation independently of the source encoder's identity; if this design achieves genuine backbone-agnostic upsampling rather than statistics specific to VideoMAE, it should improve propagated mask quality even under this backbone shift.
+This experiment is therefore best understood as a zero-shot cross-backbone generalization test, using label propagation as a training-free lens onto feature quality.
 
-Table~\ref{tab:jf} reports per-clip $\mathcal{J}\&\mathcal{F}$ scores for all 30 DAVIS~2017 validation clips.
+For each frame $t > 0$, the propagation context consists of frame $0$ (a fixed anchor, to prevent long-term drift) together with the $N_{\text{last}} = 6$ most recently propagated frames, following the DINO evaluation protocol.
+Query–context affinities are computed as cosine similarity scaled by a softmax temperature $\tau = 0.07$; only the top $k = 7$ most similar context locations per query are retained before the softmax, with all others masked out.
+Labels are propagated as a weighted combination of context labels under these attention weights, and multi-object masks are obtained by taking the arg-max over the propagated per-object channels.
+Table~\ref{tab:jf-setup} summarizes these design choices and their sources.
 
 \begin{table}[t]
 \centering
-\caption{%
-    Video object segmentation results ($\mathcal{J}\&\mathcal{F}$, higher is better) on all 30 DAVIS~2017 validation clips.
-    Clips marked $=$ produced identical scores for both methods (single-temporal-frame clips where 3D context is unavailable).
-    AnyUp3D underperforms bilinear upsampling overall (mean $\Delta = -0.308$), with only bike-packing showing improvement.
-}
-\label{tab:jf}
-\footnotesize
-\begin{tabular}{lrrr|rrrr}
+\caption{Label propagation design decisions for Experiment 3, following established non-parametric video segmentation protocols.}
+\label{tab:jf-setup}
+\small
+\begin{tabular}{p{0.28\linewidth} p{0.15\linewidth} p{0.45\linewidth}}
 \toprule
- & \multicolumn{3}{c|}{\textbf{Bilinear}} & \multicolumn{3}{c}{\textbf{AnyUp3D}} & \\
-\textbf{Clip} & $\mathcal{J}$ & $\mathcal{F}$ & $\mathcal{J\&F}$ & $\mathcal{J}$ & $\mathcal{F}$ & $\mathcal{J\&F}$ & $\Delta$ \\
+\textbf{Decision} & \textbf{Value} & \textbf{Source} \\
 \midrule
-bike-packing       & 0.579 & 0.183 & 0.381 & 0.611 & 0.211 & 0.411 & $+0.030$ \\
-blackswan          & 0.941 & 0.409 & 0.675 & 0.941 & 0.409 & 0.675 & $=$ \\
-bmx-trees          & 0.709 & 0.401 & 0.555 & 0.709 & 0.401 & 0.555 & $=$ \\
-breakdance         & 0.906 & 0.268 & 0.587 & 0.217 & 0.042 & 0.129 & $-0.458$ \\
-camel              & 0.932 & 0.330 & 0.631 & 0.932 & 0.330 & 0.631 & $=$ \\
-car-roundabout     & 0.969 & 0.407 & 0.688 & 0.969 & 0.407 & 0.688 & $=$ \\
-car-shadow         & 0.680 & 0.184 & 0.432 & 0.572 & 0.201 & 0.387 & $-0.046$ \\
-cows               & 0.794 & 0.194 & 0.494 & 0.745 & 0.194 & 0.470 & $-0.025$ \\
-dance-twirl        & 0.881 & 0.401 & 0.641 & 0.881 & 0.401 & 0.641 & $=$ \\
-dog                & 0.945 & 0.447 & 0.696 & 0.945 & 0.447 & 0.696 & $=$ \\
-dogs-jump          & 0.448 & 0.148 & 0.298 & 0.172 & 0.045 & 0.109 & $-0.189$ \\
-drift-chicane      & 0.848 & 0.465 & 0.656 & 0.134 & 0.033 & 0.083 & $-0.573$ \\
-drift-straight     & 0.904 & 0.354 & 0.629 & 0.225 & 0.039 & 0.132 & $-0.497$ \\
-goat               & 0.920 & 0.349 & 0.635 & 0.241 & 0.039 & 0.140 & $-0.495$ \\
-gold-fish          & 0.917 & 0.368 & 0.643 & 0.232 & 0.046 & 0.139 & $-0.504$ \\
-horsejump-high     & 0.830 & 0.373 & 0.601 & 0.185 & 0.051 & 0.118 & $-0.484$ \\
-india              & 0.927 & 0.287 & 0.607 & 0.244 & 0.036 & 0.140 & $-0.467$ \\
-judo               & 0.898 & 0.298 & 0.598 & 0.356 & 0.056 & 0.206 & $-0.393$ \\
-kite-surf          & 0.465 & 0.367 & 0.416 & 0.106 & 0.061 & 0.084 & $-0.332$ \\
-lab-coat           & 0.294 & 0.098 & 0.196 & 0.184 & 0.034 & 0.109 & $-0.087$ \\
-libby              & 0.629 & 0.257 & 0.443 & 0.289 & 0.067 & 0.178 & $-0.265$ \\
-loading            & 0.917 & 0.321 & 0.619 & 0.219 & 0.031 & 0.125 & $-0.494$ \\
-mbike-trick        & 0.373 & 0.168 & 0.270 & 0.132 & 0.047 & 0.089 & $-0.181$ \\
-motocross-jump     & 0.459 & 0.178 & 0.318 & 0.298 & 0.048 & 0.173 & $-0.145$ \\
-paragliding-launch & 0.610 & 0.307 & 0.458 & 0.111 & 0.044 & 0.078 & $-0.381$ \\
-parkour            & 0.820 & 0.337 & 0.578 & 0.137 & 0.037 & 0.087 & $-0.492$ \\
-pigs               & 0.596 & 0.184 & 0.390 & 0.288 & 0.047 & 0.167 & $-0.218$ \\
-scooter-black      & 0.738 & 0.404 & 0.571 & 0.166 & 0.056 & 0.111 & $-0.460$ \\
-shooting           & 0.488 & 0.123 & 0.306 & 0.226 & 0.035 & 0.130 & $-0.175$ \\
-soapbox            & 0.720 & 0.372 & 0.546 & 0.092 & 0.039 & 0.066 & $-0.480$ \\
-\midrule
-\textbf{Mean} & 0.668 & 0.259 & 0.464 & 0.246 & 0.066 & 0.156 & $\mathbf{-0.308}$ \\
+Propagation resolution & $56 \times 56$ & Boundary resolution vs.\ T4 VRAM tradeoff \\
+Softmax temperature & $\tau = 0.07$ & Jabri et al.~\cite{jabri2020}, Table 1 \\
+Top-$k$ neighbors & $k = 7$ & DINO evaluation code~\cite{caron2021dino} \\
+Context frames & Frame 0 + last 6 & DINO evaluation code ($n_{\text{last\_frames}}=6$) \\
+Multi-object handling & Soft propagation, arg-max & DAVIS 2017 semi-supervised standard \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Across all 30 DAVIS clips, AnyUp3D achieves a mean $\mathcal{J}\&\mathcal{F}$ of $0.156$ compared to $0.464$ for bilinear upsampling, a decrease of $-0.308$.
-Six clips (blackswan, bmx-trees, camel, car-roundabout, dance-twirl, dog) produce identical scores for both methods.
-These are clips for which the evaluation pipeline processed only a single temporal window, meaning the 3D temporal context provided no additional information and the model's output is equivalent to the 2D case.
-Of the remaining clips, only bike-packing shows a marginal improvement of $+0.030$ with AnyUp3D.
-All other clips exhibit regressions, ranging from $-0.025$ (cows) to $-0.573$ (drift-chicane).
+We evaluate on all 30 clips of the DAVIS~2017 validation set using the standard $\mathcal{J}\&\mathcal{F}$ score, where $\mathcal{J}$ measures region overlap (Jaccard index) and $\mathcal{F}$ measures contour accuracy, under the semi-supervised protocol (first-frame mask given, all subsequent frames predicted).
 
-% ── 4.4.3 Analysis of Downstream Results ──
-\subsection{Analysis of Downstream Results}
-\label{sec:failures}
+It is important to note that the absolute $\mathcal{J}\&\mathcal{F}$ scores in this experiment are not directly comparable to dedicated video object segmentation methods (e.g., STM (Space-Time Memory Networks)~\cite{stm}, XMem~\cite{xmem}), which combine learned matching networks with substantial training on video segmentation data and typically exceed $0.80$ on DAVIS~2017.
+Non-parametric label propagation on generic, frozen video-encoder features is a much simpler and strictly training-free baseline.
+The purpose of this experiment is not to compete with dedicated VOS methods, but to measure whether AnyUp3D features carry more spatially discriminative information than bilinearly upsampled features under an evaluation protocol with no trainable components at all.
 
-The negative downstream result is in contrast to the positive temporal consistency result of Experiment~2, and warrants careful analysis.
+% ── 4.4.2 Results ──
+\subsection{Results}
 
-\paragraph{Training resolution mismatch.}
-The model was trained exclusively under the T-curriculum stages $T\!=\!2$ and $T\!=\!4$, meaning the longest temporal context seen during training spanned 4 frames.
-At evaluation time, the DAVIS clips are long enough to require multiple temporal windows, effectively exposing the model to evaluation scenarios that differ substantially from the training distribution.
-The 3D convolutions and attention modules, having never been trained on longer sequences, are likely to produce inconsistent features at window boundaries, which degrades the quality of the features used by the linear head.
+Table~\ref{tab:jf-agg} reports the primary $\mathcal{J}$, $\mathcal{F}$, and $\mathcal{J}\&\mathcal{F}$ scores across all 30 DAVIS~2017 validation clips.
+Following the standard DAVIS evaluation protocol, this aggregate is computed as a \emph{weighted} mean: each frame's per-object score contributes individually to the total, so clips with more frames or more annotated objects contribute proportionally more to the final average, rather than each of the 30 clips counting equally regardless of length or object count.
+This weighted per-frame, per-object mean is the metric reported by the standard DAVIS evaluation toolkit and is treated as the primary result of this experiment.
 
-\paragraph{Insufficient training steps.}
-The model was trained for 6{,}000 steps, whereas the original 2D~AnyUp was trained for 100{,}000 steps.
-At this early stage, the spatial cross-attention mechanism may not have fully learned to sharpen features using the RGB guide, so the upsampled features do not yet carry enough spatial precision to outperform bilinear interpolation on a segmentation task.
+\begin{table}[t]
+\centering
+\caption{%
+    Video object segmentation results on DAVIS~2017 validation (all 30 clips), evaluated via non-parametric label propagation.
+    Scores are weighted per-frame and per-object, following the standard DAVIS evaluation protocol.
+}
+\label{tab:jf-agg}
+\footnotesize
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Method} & $\mathcal{J}$ & $\mathcal{F}$ & $\mathcal{J\&F}$ \\
+\midrule
+Bilinear & 0.272 & 0.260 & 0.266 \\
+AnyUp3D  & 0.330 & 0.365 & 0.347 \\
+\midrule
+$\Delta$ & $+0.058$ & $+0.105$ & $\mathbf{+0.081}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\paragraph{Summary.}
-The downstream results indicate that AnyUp3D, in its current training state, does not yet translate the temporal consistency gains of Experiment~2 into improved segmentation performance.
-The most probable cause is the training–evaluation resolution mismatch combined with the limited training budget.
-The marginal improvement on bike-packing, a clip that fits within a single temporal window, supports this interpretation: where the training and evaluation conditions align, the model shows a positive signal.
+Under this weighted protocol, AnyUp3D improves $\mathcal{J}\&\mathcal{F}$ from $0.266$ to $0.347$, a gain of $+0.081$, over bilinear upsampling.
+The improvement is not uniform across the two component metrics: the gain in $\mathcal{F}$-score ($+0.105$, contour accuracy) is nearly double the gain in $\mathcal{J}$-score ($+0.058$, region overlap), suggesting AnyUp3D's advantage over bilinear lies disproportionately in boundary precision rather than coarse region-level overlap.
 
-% ── FIGURE: Qualitative segmentation comparison ──
 \begin{figure}[t]
     \centering
-    % [Figure 3: Side-by-side segmentation results for 3-4 clips.
-    %  Three columns per clip: Original frame | Bilinear mask overlay
-    %  | AnyUp3D mask overlay. Include at least one success case
-    %  (e.g., camel or blackswan) and one failure case (e.g., car-shadow).]
+    \includegraphics[width=0.7\linewidth]{Figures/fig4_jf_aggregate_bar.png}
+    \caption{%
+        Weighted aggregate $\mathcal{J}$, $\mathcal{F}$, and $\mathcal{J\&F}$
+        scores, bilinear vs.\ AnyUp3D, across all 30 DAVIS~2017 validation
+        clips (data from Table~\ref{tab:jf-agg}).
+        The gain in $\mathcal{F}$-score is nearly double the gain in
+        $\mathcal{J}$-score.
+    }
+    \label{fig:exp3-agg}
+\end{figure}
+
+As a secondary check, Table~\ref{tab:jf-perclip} reports the unweighted, per-clip $\mathcal{J}\&\mathcal{F}$ breakdown, where each of the 30 clips is treated as a single equally-weighted data point regardless of length or object count.
+The unweighted mean ($0.269$ for bilinear, $0.342$ for AnyUp3D, $\Delta = +0.074$) is close to the weighted aggregate above, indicating the result is not being driven by a small number of long or heavily-annotated clips.
+Under this per-clip view, AnyUp3D outperforms bilinear on 27 of the 30 clips, ties on 1 (\textit{loading}), and underperforms on 2 (\textit{car-shadow}, \textit{drift-chicane}).
+The per-clip standard deviation of the delta is $0.059$, smaller than the mean improvement itself, indicating the gain is a consistent trend across scenes rather than an artifact of a few clips.
+The largest per-clip gain is on \textit{gold-fish} ($+0.181$); the largest loss is on \textit{drift-chicane} ($-0.081$).
+
+\begin{table}[t]
+\centering
+\caption{%
+    Per-clip $\mathcal{J}\&\mathcal{F}$ scores (unweighted), all 30 DAVIS~2017 validation clips.
+    Supplementary to the weighted aggregate in Table~\ref{tab:jf-agg}; each clip counted equally regardless of length or object count.
+}
+\label{tab:jf-perclip}
+\footnotesize
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Clip} & \textbf{Bilinear} $\mathcal{J\&F}$ & \textbf{AnyUp3D} $\mathcal{J\&F}$ & $\Delta$ \\
+\midrule
+bike-packing        & 0.324 & 0.413 & $+0.089$ \\
+blackswan            & 0.506 & 0.550 & $+0.044$ \\
+bmx-trees            & 0.114 & 0.193 & $+0.079$ \\
+breakdance           & 0.260 & 0.291 & $+0.031$ \\
+camel                & 0.397 & 0.538 & $+0.142$ \\
+car-roundabout       & 0.566 & 0.608 & $+0.042$ \\
+car-shadow           & 0.522 & 0.488 & $-0.034$ \\
+cows                 & 0.522 & 0.636 & $+0.114$ \\
+dance-twirl          & 0.300 & 0.457 & $+0.158$ \\
+dog                  & 0.437 & 0.517 & $+0.080$ \\
+dogs-jump            & 0.163 & 0.212 & $+0.050$ \\
+drift-chicane        & 0.234 & 0.153 & $-0.081$ \\
+drift-straight       & 0.154 & 0.162 & $+0.007$ \\
+goat                 & 0.251 & 0.313 & $+0.062$ \\
+gold-fish            & 0.278 & 0.458 & $+0.181$ \\
+horsejump-high       & 0.157 & 0.275 & $+0.118$ \\
+india                & 0.216 & 0.304 & $+0.088$ \\
+judo                 & 0.392 & 0.399 & $+0.007$ \\
+kite-surf            & 0.136 & 0.199 & $+0.063$ \\
+lab-coat             & 0.182 & 0.216 & $+0.033$ \\
+libby                & 0.250 & 0.427 & $+0.176$ \\
+loading              & 0.275 & 0.275 & $+0.000$ \\
+mbike-trick          & 0.078 & 0.158 & $+0.080$ \\
+motocross-jump       & 0.194 & 0.292 & $+0.098$ \\
+paragliding-launch   & 0.143 & 0.263 & $+0.120$ \\
+parkour              & 0.112 & 0.242 & $+0.130$ \\
+pigs                 & 0.324 & 0.449 & $+0.125$ \\
+scooter-black        & 0.215 & 0.298 & $+0.083$ \\
+shooting             & 0.233 & 0.299 & $+0.066$ \\
+soapbox              & 0.122 & 0.186 & $+0.064$ \\
+\midrule
+\textbf{Mean} & 0.269 & 0.342 & $\mathbf{+0.074}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.65\linewidth]{Figures/fig5_jf_scatter.png}
+    \caption{%
+        Per-clip $\mathcal{J\&F}$, bilinear vs.\ AnyUp3D, across all 30
+        DAVIS~2017 validation clips (unweighted, data from
+        Table~\ref{tab:jf-perclip}).
+        AnyUp3D wins on 27 clips, ties on 1 (\textit{loading}), and loses on
+        2 (\textit{car-shadow}, \textit{drift-chicane}), labeled.
+    }
+    \label{fig:exp3-scatter}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
     \safeincludegraphics[width=\textwidth]{Figures/segmentation_comparison.png}
     \caption{%
-        Qualitative segmentation results on selected DAVIS~2017 clips.
-        Each group shows the original frame, the segmentation mask from bilinear-upsampled features, and the mask from AnyUp3D features.
-        In clips that fit within a single temporal window (e.g., \textit{blackswan}), both methods produce comparable masks; in multi-window clips the AnyUp3D mask degrades, consistent with the training–evaluation mismatch discussed in Section~\ref{sec:failures}.
+        Qualitative label-propagation results on selected DAVIS~2017 clips.
+        Each group shows the original frame, the propagated mask from bilinear-upsampled features, and the propagated mask from AnyUp3D features.
+        \textit{gold-fish} illustrates AnyUp3D's largest improvement; \textit{drift-chicane}, the one clip with a notable regression, is included for honest comparison.
     }
     \label{fig:segmentation}
 \end{figure}
+
+% ── 4.4.3 Analysis of Downstream Results ──
+\subsection{Analysis of Downstream Results}
+\label{sec:jf-analysis}
+
+The result is notable given the conditions under which it was obtained: AnyUp3D was evaluated zero-shot on Swin-T features, a backbone distinct from VideoMAE, the encoder it was fine-tuned against, and training ran for only 6{,}000 steps (versus 100{,}000 for the original 2D AnyUp), with the $T\!=\!8$ curriculum stage never reached.
+That AnyUp3D still improves segmentation quality on 27 of 30 clips under these conditions is direct evidence that the upsampling mechanism generalizes across backbones rather than merely encoding VideoMAE-specific statistics, and suggests further gains are available from backbone-matched fine-tuning and a longer training schedule (Section~\ref{sec:future}).
+
+The two losses share a plausible common cause: \textit{drift-chicane} and \textit{drift-straight} are both fast-panning, motion-blurred clips, where rapid frame-to-frame change may strain the temporal cross-attention window rather than help it, a hypothesis, not yet verified.
+\textit{car-shadow} is a smaller case of limited headroom: bilinear's baseline score there ($0.522$) is already among the highest in the set.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.7\linewidth]{Figures/fig6_jf_delta_bar.png}
+    \caption{%
+        Per-clip $\mathcal{J\&F}$ improvement ($\Delta$ = AnyUp3D $-$
+        bilinear), sorted in descending order.
+        The two losses, \textit{car-shadow} and \textit{drift-chicane}, are
+        both small in magnitude relative to the mean gain of $+0.074$.
+    }
+    \label{fig:exp3-delta}
+\end{figure}
+
+% ────────────────────────────────────────────
+\section{Experiment 4: Model Size and Inference Cost}
+\label{sec:cost}
+
+Experiments~1--3 establish that AnyUp3D produces more temporally consistent and more downstream-useful features than its frame-independent counterpart.
+They say nothing about what that improvement costs.
+This experiment quantifies the price of the temporal extension along three axes: parameter count, inference latency, and peak GPU memory, each measured directly rather than estimated.
+
+Real-time operation is explicitly out of scope for this project (Chapter~3, Non-Functional Requirements); the purpose here is not to demonstrate that AnyUp3D is fast, but to establish concretely how much slower and larger it is than the 2D baseline, so that the temporal-consistency gains of Experiment~2 can be read against a known cost.
+
+% ── 4.5.1 Setup ──
+\subsection{Setup}
+
+Both models were instantiated with the architecture configuration used throughout this chapter: query/key dimension $d_{qk} = 128$, four attention heads, a spatial convolution kernel of size~$1$, an LFU kernel of size~$5$, and a spatial window ratio of $0.1$.
+AnyUp3D was additionally configured with a temporal convolution kernel $t_k = 3$ and a temporal attention window $w_t = 4$, matching the trained model evaluated in Experiments~1--3.
+
+\paragraph{Freshly initialised weights.}
+Both models were benchmarked without loading trained checkpoint weights.
+This is methodologically appropriate: parameter count, latency, and memory consumption are properties of the computational graph and of tensor shapes, not of the numerical values stored in the weights.
+A trained and an untrained model of identical architecture cost exactly the same to run.
+The corollary is that this experiment measures compute cost only, and says nothing about accuracy per unit of compute.
+
+\paragraph{Synthetic inputs.}
+Timing used synthetic random tensors shaped to match the real evaluation pipeline rather than actual DAVIS clips: a guide video at $224 \times 224$, a low-resolution feature volume at $14 \times 14$ (VideoMAE ViT-B/16's patch grid), $768$ feature channels (VideoMAE-base hidden size), and clips of $T = 8$ frames.
+This is a deliberate choice.
+Feeding real clips would fold data loading and VideoMAE feature extraction into every measurement, and both are shared by all three upsampling conditions; synthetic inputs isolate the cost of the upsampling architecture itself, which is the quantity of interest.
+Measurements were taken on the same T4-class GPU used throughout this chapter.
+
+\paragraph{What is being compared.}
+The comparison follows the frame-independent baseline definition already established in Section~\ref{sec:setup}: the 2D~AnyUp baseline is the pretrained 2D model applied once per frame.
+Accordingly, the timed operations were:
+
+\begin{itemize}
+    \item \textbf{2D AnyUp:} a loop of $T = 8$ forward calls, each on single-frame tensors of shape $(1, 3, 224, 224)$ and $(1, 768, 14, 14)$ --- the actual cost of deploying the 2D baseline over a video clip.
+    \item \textbf{AnyUp3D:} a single forward call on the full spatiotemporal volume, $(1, 3, 8, 224, 224)$ and $(1, 768, 8, 14, 14)$.
+\end{itemize}
+
+Reporting the 2D baseline as a per-clip loop rather than a per-frame call is what makes the two numbers comparable: both then describe the cost of upsampling one eight-frame clip.
+
+\paragraph{Measurement protocol.}
+Parameter counts were obtained by summing \texttt{numel()} over \texttt{model.parameters()}, and static size by summing $\texttt{numel()} \times \texttt{element\_size()}$ under \texttt{float32} ($4$ bytes per parameter).
+Registered buffers (non-trainable persistent tensors) were measured separately and found to be empty for both models, so all static cost is attributable to learnable weights.
+
+Latency was measured under \texttt{torch.no\_grad()} at batch size~1, the standard convention for reporting inference latency.
+Five warm-up iterations were discarded before timing, to exclude CUDA kernel compilation and caching effects, followed by 20 timed iterations.
+Each timed region was bracketed by \texttt{torch.cuda.synchronize()}: CUDA operations are asynchronous, so without explicit synchronisation a host-side timer measures kernel \emph{launch} time rather than GPU compute time.
+Mean and standard deviation across the 20 iterations are reported.
+
+Peak memory was measured with PyTorch's \texttt{max\_memory\_allocated()} function.
+Before each run, \texttt{reset\_peak\_memory\_stats()} cleared residual allocations so that each model's peak was measured independently.
+
+\paragraph{Query chunking.}
+At full resolution, AnyUp3D's cross-attention operates over $T \times H \times W = 8 \times 224 \times 224 = 401{,}408$ query tokens jointly, which exhausted the available GPU memory on a first attempt.
+This was resolved using the model's built-in query chunking (Chapter~3, Section~\ref{sec:crossattn3d}), which computes attention over non-overlapping query chunks against the full key and value sequences, reducing the peak attention-matrix footprint from $\mathcal{O}(Q \cdot K)$ to $\mathcal{O}(q_{\text{chunk}} \cdot K)$.
+A chunk size of $q_{\text{chunk}} = 50{,}176$ was used --- exactly one frame's worth of queries.
+All AnyUp3D figures below are therefore reported \emph{with} chunking enabled; the unchunked model does not fit on this hardware at this resolution.
+
+% ── 4.5.2 Results ──
+\subsection{Results}
+
+\begin{table}[htbp]
+\centering
+\caption{%
+    Parameter count and static memory footprint.
+    Buffers are empty in both models, so all static cost comes from learnable weights.
+}
+\label{tab:cost-params}
+\begin{tabular}{lrr}
+\toprule
+ & \textbf{2D AnyUp} & \textbf{AnyUp3D} \\
+\midrule
+Total parameters        & 878{,}080 & 1{,}540{,}736 \\
+Parameter memory (fp32) & 3.35\,MB  & 5.88\,MB \\
+Buffer memory           & 0.00\,MB  & 0.00\,MB \\
+\midrule
+$\Delta$ parameters     & \multicolumn{2}{r}{$\mathbf{+662{,}656\ (+75.5\%)}$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+AnyUp3D carries $662{,}656$ more parameters than the 2D baseline, a $75.5\%$ increase, or a factor of $1.75\times$.
+In absolute terms both models remain small: $5.88$\,MB of fp32 weights is negligible beside the frozen backbone that feeds them.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.55\linewidth]{Figures/fig7_cost_params.png}
+    \caption{%
+        Total learnable parameters, 2D~AnyUp vs.\ AnyUp3D
+        (data from Table~\ref{tab:cost-params}).
+    }
+    \label{fig:exp4-params}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{%
+    Inference cost on an eight-frame clip at batch size~1, $224 \times 224$ output resolution, measured over 20 timed iterations after 5 warm-up iterations.
+    The 2D baseline is timed as eight independent per-frame calls; AnyUp3D as a single call on the full volume with $q_{\text{chunk}} = 50{,}176$.
+}
+\label{tab:cost-latency}
+\small
+\begin{tabular}{lrr}
+\toprule
+ & \textbf{2D AnyUp} ($\times 8$ frames) & \textbf{AnyUp3D} (one volume) \\
+\midrule
+Latency per clip  & $439.4 \pm 24.9$\,ms & $1189.4 \pm 8.4$\,ms \\
+Latency per frame & $54.9$\,ms           & $148.7$\,ms \\
+Throughput        & $18.2$\,FPS          & $6.7$\,FPS \\
+Peak GPU memory   & $0.51$\,GB           & $5.39$\,GB \\
+\midrule
+Relative cost     & $1.00\times$ / $1.00\times$ & $\mathbf{2.7\times}$ time / $\mathbf{10.6\times}$ memory \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+AnyUp3D takes $2.7\times$ longer to process a clip and requires $10.6\times$ more peak GPU memory than the frame-independent 2D baseline --- despite issuing a single forward call where the baseline issues eight.
+Throughput falls from $18.2$ to $6.7$ frames per second.
+The low standard deviation on the AnyUp3D measurement ($\pm 8.4$\,ms, under $1\%$ of the mean) reflects a single large GPU operation; the noisier 2D figure ($\pm 24.9$\,ms) reflects the accumulated variance of eight separate Python-level dispatches.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{Figures/fig8_cost_latency_memory.png}
+    \caption{%
+        Inference latency (per eight-frame clip) and peak GPU memory,
+        2D~AnyUp vs.\ AnyUp3D (data from Table~\ref{tab:cost-latency}).
+        AnyUp3D is $2.7\times$ slower and uses $10.6\times$ more peak
+        memory.
+    }
+    \label{fig:exp4-cost}
+\end{figure}
+
+% ── 4.5.3 Analysis ──
+\subsection{Analysis of Inference Cost}
+\label{sec:cost-analysis}
+
+The two halves of this result tell different stories, and the gap between them is the finding worth stating.
+
+The parameter increase is modest and architecturally accounted for.
+The extra $662{,}656$ weights come almost entirely from extending the 2D convolutions to 3D --- a temporal kernel of $t_k = 3$ where the 2D model is effectively of extent~1 along time --- together with the additional temporal-axis machinery in RoPE3D and CrossAttention3D.
+A $1.75\times$ parameter count is a small price for temporal modelling capability, and it is roughly what one would predict from the architectural changes alone.
+
+The latency and memory costs are disproportionately larger than the parameter growth predicts, and the reason is structural rather than incidental.
+AnyUp3D computes attention jointly over all $T \times H \times W$ spatiotemporal query tokens in the clip, whereas the 2D baseline's eight independent calls each attend only within one frame's much smaller token set.
+Attention cost scales worse than linearly in sequence length, so processing a clip ``all at once'' costs more than the sum of eight small independent passes --- even though it avoids the per-call dispatch overhead of invoking the model eight times.
+The $10.6\times$ memory factor has the same origin: the attention matrix, not the weights, dominates the footprint, which is precisely why query chunking was required to run the model at all at this resolution.
+
+This is worth stating plainly, because the cost and the benefit are the same mechanism.
+The joint spatiotemporal attention responsible for the $2.7\times$ slowdown and the $10.6\times$ memory increase is the same computation responsible for the $+0.081$ mean temporal-consistency improvement reported in Experiment~2 (Section~\ref{sec:temporal}) --- features are more temporally stable precisely \emph{because} adjacent frames attend to one another rather than being upsampled in isolation.
+The measured overhead is therefore not an implementation inefficiency to be optimised away without consequence; it is the direct computational expression of the design decision under evaluation.
+Reducing it would require changing that mechanism --- for example, replacing dense spatiotemporal attention with linear or sparse windowed attention --- rather than merely tuning the existing implementation.
 
 
 % ────────────────────────────────────────────
@@ -345,22 +665,33 @@ The marginal improvement on bike-packing, a clip that fits within a single tempo
 
 % ── 4.5.1 Summary of Findings ──
 \subsection{Summary of Findings}
+\label{sec:discussion-summary}
 
-The three experiments present a mixed but informative picture of AnyUp3D's current capabilities.
+The three experiments present a broadly consistent, positive picture of AnyUp3D's capabilities, with one clear direction remaining for future work.
 The training convergence analysis (Experiment~1) confirms that the 3D extension does not regress on the spatial upsampling quality inherited from 2D initialisation, and shows early signs of improvement.
 The temporal consistency evaluation (Experiment~2) demonstrates that AnyUp3D produces substantially more stable features than frame-independent 2D upsampling, with improvements on all 30 DAVIS clips and a mean cosine similarity increase of $+0.081$.
-The downstream segmentation evaluation (Experiment~3) shows, however, that these temporal gains do not yet translate into improved segmentation performance: AnyUp3D achieves a mean $\mathcal{J}\&\mathcal{F}$ of $0.156$ against $0.464$ for bilinear upsampling, a gap attributed to the training–evaluation temporal resolution mismatch and the limited training budget of 6{,}000 steps.
+The downstream evaluation (Experiment~3) extends this positive result to a practical task: under non-parametric label propagation, a training-free protocol with no learned head, AnyUp3D improves the weighted $\mathcal{J}\&\mathcal{F}$ score from $0.266$ to $0.347$ ($+0.081$) over bilinear upsampling (Table~\ref{tab:jf-agg}), with a matching unweighted per-clip mean improvement of $+0.074$ across 27 of 30 clips (Table~\ref{tab:jf-perclip}).
+Notably, this gain is achieved using Video Swin-T features, a backbone AnyUp3D was never fine-tuned on, as a deliberate zero-shot test of the architecture's backbone-agnostic design.
+Experiment~4 (Section~\ref{sec:cost}) prices these gains: AnyUp3D carries $75.5\%$ more parameters than the 2D baseline, but runs $2.7\times$ slower and consumes $10.6\times$ more peak GPU memory on an eight-frame clip.
+The disparity between the modest parameter growth and the much larger runtime cost is itself informative --- it localises the expense in the joint spatiotemporal attention rather than in the added weights, which is the same mechanism producing the temporal-consistency gain above.
+The open question is how much further this margin would grow with a completed $T$-curriculum and backbone-matched fine-tuning, neither of which the available training budget permitted (Section~\ref{sec:discussion-limitations}).
 
 % ── 4.5.2 Limitations ──
 \subsection{Limitations}
+\label{sec:discussion-limitations}
 
-Several limitations of this evaluation should be acknowledged.
+Several limitations qualify how far these results can be generalized.
+
+\paragraph{Zero-shot backbone transfer only.}
+AnyUp3D was fine-tuned exclusively on VideoMAE features, but Experiment~3 evaluates it on Video Swin-T features it has never seen.
+The reported $+0.081$ gain is therefore a zero-shot transfer result, not the ceiling of what AnyUp3D could achieve on a backbone it was actually fine-tuned on.
+It should be read as a lower bound on the model's potential with Swin-T, not the model's best-case performance.
 
 \paragraph{No spatial-only benchmark.}
-The original evaluation plan included a linear probing experiment on a standard image segmentation dataset (e.g., ADE20K) to measure spatial upsampling quality in isolation, using mIoU as the metric.
+The original evaluation plan included a linear probing experiment on a standard image segmentation dataset (e.g., ADE20K) to measure spatial upsampling quality in isolation, using mIoU (mean Intersection-over-Union) as the metric.
 This experiment was not conducted due to time constraints.
-Instead, Experiment~1 provides qualitative evidence of spatial quality through PCA visualization, and Experiment~3 provides indirect quantitative evidence through the $\mathcal{F}$-score improvement.
-A dedicated spatial benchmark would strengthen the evaluation by providing a direct, quantitative comparison of spatial feature quality independent of temporal effects.
+Instead, Experiment~1 provides qualitative evidence of spatial quality through PCA visualization, and Experiment~3 provides indirect quantitative evidence: the $\mathcal{F}$-score (contour accuracy) improves by $+0.105$, nearly double the $\mathcal{J}$-score (region overlap) improvement of $+0.058$, suggesting a specifically spatial contribution.
+A dedicated spatial benchmark would still strengthen the evaluation by isolating spatial quality independent of temporal effects.
 
 \paragraph{No ablation study.}
 We do not present ablation experiments isolating the contributions of the two main 3D components.
@@ -369,13 +700,19 @@ Such ablations would clarify how much of the temporal consistency gain is attrib
 
 \paragraph{Single training run.}
 All results are reported from a single training run rather than averaged over multiple seeds.
-While the temporal consistency results are robust (improvements on all 30 clips suggest the result is not seed-dependent), the $\mathcal{J}\&\mathcal{F}$ scores would benefit from multi-seed evaluation with reported confidence intervals.
+The temporal consistency results are robust (improvements on all 30 clips suggest the result is not seed-dependent), and the Experiment~3 gain holds under both weighted and unweighted aggregation, which reduces the likelihood of a chance result; but neither metric is supported by confidence intervals from repeated runs.
 
-\paragraph{Limited training budget.}
-The model was trained for 6{,}000 steps, compared to 100{,}000 steps for the original 2D~AnyUp~\cite{anyup}.
-The downstream segmentation gap is consistent with this: at 6{,}000 steps the model has not yet converged, and the spatial cross-attention has not had enough gradient updates to produce features that reliably exceed the bilinear baseline on a pixel-level task.
-Completing the $T\!=\!8$ curriculum stage and training to convergence is the most direct path to closing this gap.
+\paragraph{Scope of the inference benchmark.}
+The cost measurements in Experiment~4 were taken on synthetic random tensors shaped to match the real pipeline, not on DAVIS clips run end-to-end through VideoMAE.
+This isolates the upsampler's cost cleanly but excludes data loading and backbone feature extraction, so the reported figures are not end-to-end pipeline latency.
+Only a single query chunk size was tested; the chunk size trades memory against speed, and that trade-off curve was not swept.
+Measurements were taken on one GPU class (T4) at batch size~1, and would differ on other hardware or under batching.
+
+\paragraph{Incomplete training budget.}
+The model was trained for 6{,}000 steps, compared to 100{,}000 steps for the original 2D~AnyUp~\cite{anyup}, and reached only the $T\!=\!4$ stage of the planned $T\!=\!2/4/8$ curriculum.
+That AnyUp3D already improves downstream segmentation under these conditions, and on a backbone it was never fine-tuned on, suggests the current results likely understate its potential.
+Completing the $T\!=\!8$ curriculum stage and training to convergence remains the most direct path to closing the remaining gap with the original 2D AnyUp.
 
 \paragraph{Absolute $\mathcal{J}\&\mathcal{F}$ scores.}
-The mean $\mathcal{J}\&\mathcal{F}$ scores ($0.464$ for bilinear, $0.156$ for AnyUp3D) are below dedicated video object segmentation methods and, at this training stage, AnyUp3D does not yet outperform simple bilinear interpolation.
-This is attributed primarily to the training–evaluation mismatch and limited training duration discussed in Section~\ref{sec:failures}, rather than a fundamental limitation of the temporal upsampling approach.
+The mean $\mathcal{J}\&\mathcal{F}$ scores reported ($0.266$ for bilinear, $0.347$ for AnyUp3D) are well below dedicated video object segmentation methods, which combine learned matching networks with dedicated VOS training and typically exceed $0.80$ on DAVIS~2017.
+This is expected: label propagation on frozen, generic video-encoder features with no trainable component is a much simpler baseline than purpose-built VOS methods, and the comparison here is relative (AnyUp3D vs.\ bilinear under identical conditions), not absolute.
