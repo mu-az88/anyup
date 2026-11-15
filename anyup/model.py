@@ -22,11 +22,11 @@ class AnyUp(nn.Module):
             kernel_size=1,
             kernel_size_lfu=5,
             window_ratio=0.1,
-            window_t=None,
+            window_t=3,
             num_heads=4,
             init_gaussian_derivatives=False,
             lfu_dim=None,
-            t_k=1,
+            t_k=3,
             **kwargs,
     ):
         super().__init__()

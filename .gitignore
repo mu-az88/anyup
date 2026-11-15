@@ -38,15 +38,10 @@ multirun/
 .hydra/
 
 # Checkpoints / weights
-*.pth
-*.pt
-*.ckpt
+
 
 # Logs
 *.log
 runs/
 
 # Model checkpoints
-*.pth
-*.pt
-*.ckpt

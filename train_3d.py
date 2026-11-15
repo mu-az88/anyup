@@ -6,8 +6,8 @@ Usage:
     python train.py --config configs/anyup3d_train.yaml --debug
 
 Depends on:
-    - anyup/modules/anyup3d.py          (AnyUp3D model)
-    - anyup/modules/losses3d.py         (combined_loss_3d, all λ-weighted components)
+    - anyup/model.py          (AnyUp3D model)
+    - anyup/data/training/losses.py         (combined_loss, all λ-weighted components)
     - scripts/load_2d_weights.py        (load_2d_weights_into_3d)
     - Person B: anyup/data/video_dataset.py + get_video_dataloaders()
 """
@@ -25,8 +25,8 @@ from torch.utils.tensorboard import SummaryWriter
 from transformers import VideoMAEModel, AutoImageProcessor
 
 # ── Project imports ────────────────────────────────────────────────────────────
-from anyup.modules.anyup3d import AnyUp3D
-from anyup.modules.losses3d import combined_loss_3d
+from anyup.model import AnyUp
+from anyup.data.training.losses import combined_loss
 from anyup.utils.seed import set_seed
 from scripts.load_2d_weights import load_2d_weights_into_3d
 
@@ -122,9 +122,35 @@ def load_checkpoint(
     """
     Load checkpoint into model (and optionally optimizer).
     Returns (step, t_stage) so the training loop can resume correctly.
+
+    Handles Conv3d temporal-kernel mismatches (e.g. checkpoint saved with
+    t_k=1 but model built with t_k=3) via center-init expansion.
     """
     state = torch.load(path, map_location=device)
-    model.load_state_dict(state["model_state_dict"])
+    ckpt_sd = state["model_state_dict"]
+    model_sd = model.state_dict()
+
+    adapted_sd = {}
+    for key, dst in model_sd.items():
+        src = ckpt_sd.get(key)
+        if src is None:
+            adapted_sd[key] = dst.clone()
+        elif src.shape == dst.shape:
+            adapted_sd[key] = src
+        elif src.dim() == 5 and dst.dim() == 5 and src.shape[2] != dst.shape[2]:
+            # Conv3d temporal kernel size changed — center-init expand
+            expanded = torch.zeros_like(dst)
+            src_center = src.shape[2] // 2
+            dst_center = dst.shape[2] // 2
+            expanded[:, :, dst_center, :, :] = src[:, :, src_center, :, :]
+            adapted_sd[key] = expanded
+            print(f"[load_checkpoint] expanded {key}: t_k {src.shape[2]} → {dst.shape[2]}")
+        else:
+            adapted_sd[key] = dst.clone()
+            print(f"[load_checkpoint] WARNING: shape mismatch for {key}: "
+                  f"{tuple(src.shape)} → {tuple(dst.shape)}, keeping model init")
+
+    model.load_state_dict(adapted_sd, strict=True)
     if optimizer is not None and "optimizer_state_dict" in state:
         optimizer.load_state_dict(state["optimizer_state_dict"])
     step = state.get("step", 0)
@@ -188,24 +214,64 @@ def build_gt_extractor(cfg, device: torch.device):
         t_tubelet = 2                           # VideoMAE temporal patch size (tubelet size = 2)
         patch_size = 16                         # spatial patch size for ViT-B
         embed_dim = 768                         # ViT-B hidden dim
+        model_img_size = backbone.config.image_size           # 224 for videomae-base
+        model_num_frames = backbone.config.num_frames         # 16 for videomae-base
+        model_T_tok = model_num_frames // t_tubelet           # 8
 
         def extract(video: torch.Tensor) -> torch.Tensor:
             # video: (B, C, T, H, W) ∈ [0, 1]
-            B, C, T, H, W = video.shape         # ↓ T, H, W control token sequence length
-            T_tok = T // t_tubelet              # temporal token grid — depends on t_tubelet above
-            H_tok = H // patch_size             # spatial token grid height — depends on patch_size
-            W_tok = W // patch_size             # spatial token grid width  — depends on patch_size
+            B, C, T, H, W = video.shape
 
-            # VideoMAE expects list-of-frames per sample as pixel_values input
-            # pixel_values shape: (B, T, C, H, W) — note VideoMAE-specific axis order
-            pixel_values = video.permute(0, 2, 1, 3, 4)  # → (B, T, C, H, W)
+            # ── 1. Ensure T ≥ t_tubelet (VideoMAE needs ≥ 2 frames) ──────────
+            if T < t_tubelet:
+                reps = (t_tubelet + T - 1) // T
+                video = video.repeat(1, 1, reps, 1, 1)[:, :, :t_tubelet]
+                T = t_tubelet
 
-            with torch.no_grad():
-                out = backbone(pixel_values=pixel_values)
+            T_tok = T // t_tubelet
+
+            # VideoMAE expects (B, T, C, H, W)
+            pixel_values = video.permute(0, 2, 1, 3, 4)
+
+            # ── 2. Resize spatial dims to model's native image_size ───────────
+            if H != model_img_size or W != model_img_size:
+                pixel_values = torch.nn.functional.interpolate(
+                    pixel_values.reshape(B * T, C, H, W),
+                    size=(model_img_size, model_img_size),
+                    mode="bilinear",
+                    align_corners=False,
+                ).view(B, T, C, model_img_size, model_img_size)
+
+            H_tok = model_img_size // patch_size
+            W_tok = model_img_size // patch_size
+
+            # ── 3. Interpolate position embeddings for variable T ─────────────
+            # videomae-base position_embeddings are fixed for num_frames=16
+            # (shape 1 × 1568 × 768).  Temporarily swap in an interpolated copy
+            # when the input T differs from the model's native num_frames.
+            orig_pos_data = None
+            if T_tok != model_T_tok:
+                orig_pos = backbone.embeddings.position_embeddings.data  # (1, model_T_tok*S, D)
+                S = H_tok * W_tok
+                p = orig_pos.view(1, model_T_tok, S, embed_dim).permute(0, 3, 1, 2)  # (1, D, Tt, S)
+                p_interp = torch.nn.functional.interpolate(
+                    p.float(),
+                    size=(T_tok, S),
+                    mode="bilinear",
+                    align_corners=False,
+                ).permute(0, 2, 3, 1).reshape(1, T_tok * S, embed_dim).to(orig_pos.dtype)
+                orig_pos_data = orig_pos.clone()
+                backbone.embeddings.position_embeddings.data = p_interp
+
+            try:
+                with torch.no_grad():
+                    out = backbone(pixel_values=pixel_values)
+            finally:
+                if orig_pos_data is not None:
+                    backbone.embeddings.position_embeddings.data = orig_pos_data
 
             # last_hidden_state: (B, T_tok*H_tok*W_tok, embed_dim)
             tokens = out.last_hidden_state
-            # Reshape to spatiotemporal grid: (B, D, T_tok, H_tok, W_tok)
             feats = (
                 tokens
                 .reshape(B, T_tok, H_tok, W_tok, embed_dim)
@@ -237,6 +303,20 @@ def _stub_dataloader(cfg, t: int, batch_size: int, device: torch.device):
         video_crop = torch.rand(batch_size, C, t, H * 2, W * 2, device=device)  # high-res crop
         patch_size = 14
         yield {"video": video, "video_crop": video_crop, "patch_size": patch_size}
+
+
+def get_loader(cfg, t: int, batch_size: int, device: torch.device):
+    """
+    Return a data iterator for the given (T, batch_size) combination.
+    Uses Person B's get_video_dataloaders() when available, otherwise falls
+    back to _stub_dataloader.
+    """
+    if _HAS_PERSON_B_DATA:
+        train_loader, _ = get_video_dataloaders(cfg, t=t, batch_size=batch_size)
+        return iter(train_loader)
+    else:
+        print("[train] WARNING: using stub DataLoader — replace with Person B's module")
+        return _stub_dataloader(cfg, t=t, batch_size=batch_size, device=device)
 
 
 # ==============================================================================
@@ -307,12 +387,11 @@ def main():
     writer = SummaryWriter(log_dir=str(log_dir))
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    model = AnyUp3D().to(device)
-
     if cfg.model_ckpt_2d and Path(cfg.model_ckpt_2d).exists():
-        load_2d_weights_into_3d(model, cfg.model_ckpt_2d, device=device)
+        model = load_2d_weights_into_3d(cfg.model_ckpt_2d).to(device)
         print(f"[train] Loaded 2D weights from {cfg.model_ckpt_2d}")
     else:
+        model = AnyUp().to(device)
         print(f"[train] WARNING: 2D checkpoint not found at {cfg.model_ckpt_2d!r} — training from scratch")
 
     # ── Optimizer ─────────────────────────────────────────────────────────────
@@ -351,17 +430,7 @@ def main():
     print(f"[train] Starting at T={current_t}  batch_size={current_batch_size}")
 
     # ── DataLoader ────────────────────────────────────────────────────────────
-    # Person B's interface: get_video_dataloaders(cfg, t, batch_size) → (train_loader, val_loader)
-    # Falls back to stub when Person B's module is unavailable.
-    def _get_loader(t: int, batch_size: int):
-        if _HAS_PERSON_B_DATA:
-            train_loader, _ = get_video_dataloaders(cfg, t=t, batch_size=batch_size)
-            return iter(train_loader)
-        else:
-            print("[train] WARNING: using stub DataLoader — replace with Person B's module")
-            return _stub_dataloader(cfg, t=t, batch_size=batch_size, device=device)
-
-    data_iter = _get_loader(current_t, current_batch_size)
+    data_iter = get_loader(cfg, current_t, current_batch_size, device)
 
     # ── Training loop ─────────────────────────────────────────────────────────
     model.train()
@@ -380,14 +449,14 @@ def main():
             current_t = new_t
             current_batch_size = new_bs
             # Rebuild DataLoader for the new (T, batch_size) combination
-            data_iter = _get_loader(current_t, current_batch_size)
+            data_iter = get_loader(cfg, current_t, current_batch_size, device)
             model.train()
 
         # -- Data loading -----------------------------------------------------
         try:
             batch = next(data_iter)
         except StopIteration:
-            data_iter = _get_loader(current_t, current_batch_size)
+            data_iter = get_loader(cfg, current_t, current_batch_size, device)
             batch = next(data_iter)
 
         # batch keys (Person B's contract):
@@ -405,21 +474,43 @@ def main():
             gt_features = extract_gt(video_crop)    # (B, D, T', H', W')
 
         # -- Forward pass -----------------------------------------------------
-        pred_features = model(video, patch_size=patch_size)             # (B, D, T', H', W')
+        # AnyUp.forward(image, features, output_size) — upsample gt_features
+        # guided by the low-res video, targeting the GT token-grid resolution.
+        _, _, T_tok, H_tok, W_tok = gt_features.shape
+        pred_features = model(video, gt_features, output_size=(H_tok, W_tok))
 
         # -- Loss -------------------------------------------------------------
         lam_t = temporal_lambda(cfg, global_step)   # ramped temporal λ
 
-        loss, loss_components = combined_loss_3d(
-            pred=pred_features,
-            gt=gt_features,
-            video=video,
-            model=model,
-            lambda_cos_mse=cfg.lambda_cos_mse,
-            lambda_input_consistency=cfg.lambda_input_consistency,
-            lambda_self_consistency=cfg.lambda_self_consistency,
-            lambda_temporal_consistency=lam_t,
+        # combined_loss expects channels-last (B, T, H, W, C) tensors and a
+        # model callable with signature model(p, V) where p is features-first.
+        # AnyUp.forward is (image, features, output_size) / channels-first, so
+        # we convert layouts and provide a thin wrapper for self_consistency_loss.
+        pred_cl = pred_features.permute(0, 2, 3, 4, 1).contiguous()   # (B,T,H',W',C)
+        gt_cl   = gt_features.permute(0, 2, 3, 4, 1).contiguous()     # (B,T,H',W',C)
+        video_cl = video.permute(0, 2, 3, 4, 1).contiguous()          # (B,T,H,W,3)
+
+        def _model_cl(p_cl, V_cl):
+            """Adapter: channels-last (p,V) → channels-first AnyUp → channels-last."""
+            p_cf  = p_cl.permute(0, 4, 1, 2, 3)
+            V_cf  = V_cl.permute(0, 4, 1, 2, 3)
+            out_h, out_w = p_cl.shape[2], p_cl.shape[3]
+            out = model(V_cf, p_cf, output_size=(out_h, out_w))
+            return out.permute(0, 2, 3, 4, 1)
+
+        loss_dict = combined_loss(
+            q_pred=pred_cl,
+            q_target=gt_cl,
+            p=gt_cl,                                  # coarse features (GT used as placeholder)
+            V=video_cl,
+            model=_model_cl,
+            lambda1=cfg.lambda_input_consistency,
+            lambda2=cfg.lambda_self_consistency,
+            lambda3_max=lam_t,
+            step=global_step,
         )
+        loss = loss_dict["total"]
+        loss_components = loss_dict
 
         # -- Backward + optimizer step ----------------------------------------
         optimizer.zero_grad(set_to_none=True)
@@ -439,19 +530,19 @@ def main():
                 f"[step {global_step:06d}] "
                 f"T={current_t}  "
                 f"loss={loss.item():.4f}  "
-                f"L_cos_mse={loss_components['cos_mse']:.4f}  "
-                f"L_inp={loss_components['input_consistency']:.4f}  "
-                f"L_self={loss_components['self_consistency']:.4f}  "
-                f"L_temp={loss_components['temporal_consistency']:.4f}  "
+                f"L_recon={loss_components['reconstruction']:.4f}  "
+                f"L_inp={loss_components['input']:.4f}  "
+                f"L_self={loss_components['self']:.4f}  "
+                f"L_temp={loss_components['temporal']:.4f}  "
                 f"λ_temp={lam_t:.3f}  "
                 f"{steps_per_sec:.1f} it/s"
             )
 
             writer.add_scalar("loss/total", loss.item(), global_step)
-            writer.add_scalar("loss/cos_mse", loss_components["cos_mse"], global_step)
-            writer.add_scalar("loss/input_consistency", loss_components["input_consistency"], global_step)
-            writer.add_scalar("loss/self_consistency", loss_components["self_consistency"], global_step)
-            writer.add_scalar("loss/temporal_consistency", loss_components["temporal_consistency"], global_step)
+            writer.add_scalar("loss/reconstruction", loss_components["reconstruction"], global_step)
+            writer.add_scalar("loss/input_consistency", loss_components["input"], global_step)
+            writer.add_scalar("loss/self_consistency", loss_components["self"], global_step)
+            writer.add_scalar("loss/temporal_consistency", loss_components["temporal"], global_step)
             writer.add_scalar("curriculum/T", current_t, global_step)
             writer.add_scalar("curriculum/batch_size", current_batch_size, global_step)
             writer.add_scalar("lambda/temporal", lam_t, global_step)

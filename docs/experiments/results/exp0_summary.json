@@ -1,0 +1,144 @@
+{
+  "summary": {
+    "params": {
+      "bilinear": {
+        "params": 0,
+        "size_mib": 0.0
+      },
+      "anyup2d": {
+        "params": 878080,
+        "size_mib": 3.349609375
+      },
+      "anyup3d": {
+        "params": 1540736,
+        "size_mib": 5.87744140625
+      }
+    },
+    "main": {
+      "out_size": 224,
+      "frames": 8,
+      "q_chunk": 4096
+    },
+    "ratios_vs_anyup2d": {
+      "fast": {
+        "params_increase_pct": 75.466472303207,
+        "time_ratio": 2.4117183045719806,
+        "memory_ratio_extra": 1.6098931760204083,
+        "memory_ratio_total": 1.597094597821812
+      },
+      "deterministic": {
+        "params_increase_pct": 75.466472303207,
+        "time_ratio": 2.2733979642406097,
+        "memory_ratio_extra": 1.6098931760204083,
+        "memory_ratio_total": 1.597094597821812
+      }
+    },
+    "thesis": {
+      "params_increase_pct": 75.5,
+      "time_ratio": 2.7,
+      "memory_ratio": 10.5
+    },
+    "checks": [
+      {
+        "name": "anyup3d params = thesis",
+        "passed": true,
+        "detail": "1,540,736 vs 1,540,736"
+      },
+      {
+        "name": "output shapes",
+        "passed": true,
+        "detail": "48 ok rows are (T, 768, S, S)"
+      },
+      {
+        "name": "bilinear extra memory \u2248 output tensor",
+        "passed": false,
+        "detail": "max relative gap 6.000 over 11 rows (tol 0.10)"
+      }
+    ]
+  },
+  "config": {
+    "gpu_profile": "A100",
+    "gpu_name": "Tesla T4",
+    "run_name": "A100_main_s224_f8_q4096_sweep",
+    "upsamplers": [
+      "bilinear",
+      "anyup2d",
+      "anyup3d"
+    ],
+    "warmup": 5,
+    "repeats": 20,
+    "seed": 0,
+    "main": {
+      "out_size": 224,
+      "frames": 8,
+      "q_chunk": 4096
+    },
+    "run_sweep": true,
+    "out_sizes": [
+      56,
+      112,
+      224
+    ],
+    "frames": [
+      4,
+      8,
+      16
+    ],
+    "q_chunks": [
+      null,
+      1024,
+      4096
+    ],
+    "feat_dim": 768,
+    "feat_grid": 14,
+    "inputs": "synthetic randn, fixed seed",
+    "modes": [
+      "fast (deterministic=False)",
+      "deterministic (main row only)"
+    ],
+    "anyup3d_meta": {
+      "ckpt_path": "/content/drive/MyDrive/results/anyup3d_step6500.pth",
+      "ckpt_step": 6500,
+      "ckpt_sha256": "dbdc32f26e8d5c4021536c875c5249464cd0b9306c3afae0f6eebfa0466149e3",
+      "q_chunk_size": 4096,
+      "arch": {
+        "input_dim": 3,
+        "qk_dim": 128,
+        "kernel_size": 1,
+        "kernel_size_lfu": 5,
+        "window_ratio": 0.1,
+        "window_t": 4,
+        "num_heads": 4,
+        "t_k": 3
+      }
+    },
+    "anyup2d_meta": {
+      "weights": "https://github.com/wimmerth/anyup/releases/download/checkpoint/anyup_paper.pth",
+      "weights_sha256": "9d035c0f27114a6f32bdd3d8ed93b6cd39dad4b8f8bf94e69fddbfbf022901b2"
+    },
+    "repo_branch": "experiments-task02"
+  },
+  "env": {
+    "time_utc": "2026-11-10T18:30:26+00:00",
+    "python": "3.13.16",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "gpu": "Tesla T4",
+    "git_commit": "13fce8c008a775e83dd3ae6de924edae99fb4f3a",
+    "git_branch": "experiments-task02",
+    "git_dirty": false,
+    "cublas_workspace_config": ":4096:8",
+    "packages": {
+      "torchvision": "0.29.1+cu130",
+      "timm": "1.0.31",
+      "transformers": "5.22.1",
+      "numpy": "2.4.6",
+      "scipy": "1.16.3",
+      "scikit-image": "0.25.2",
+      "opencv-python": "5.0.0.93",
+      "opencv-python-headless": "5.0.0.93",
+      "pillow": "11.3.0",
+      "decord": null
+    }
+  }
+}
