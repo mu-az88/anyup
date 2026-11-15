@@ -29,7 +29,7 @@ _Naming (T08): the efficiency experiment is **Exp 0** (formerly Exp 4). In the T
 
 ## Issues Found in the Existing Experiments (from T01 review)
 
-- Exp 1 ran with the `step500` checkpoint. **Must be re-run in Phase B.** It also used `window_t=3` (training used 4), but that has no effect at T=1 (T06: `window_t` only enters the temporal attention mask; pytest confirms equal outputs).
+- Exp 1 ran with the `step500` checkpoint. **Must be re-run in Phase B.** It also used `window_t=3` (training used 4 _(correction 2026-11-15, S13: training never passed `window_t`, so it used the model default, `None` then 3; all the same at ≤ 4 tubelets)_), but that has no effect at T=1 (T06: `window_t` only enters the temporal attention mask; pytest confirms equal outputs).
 - Exp 3 fed raw [0,1] guides; training uses ImageNet-normalized guides. **Re-run in Phase B with normalized guides; the J&F numbers may change.**
 - AnyUp3D was trained on VideoMAE features only, so DINOv2 and Swin-T results are zero-shot.
 
