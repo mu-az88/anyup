@@ -6,7 +6,7 @@ How to change notebooks such as `Train_3D_full.ipynb` without losing a working v
 
 Edit the existing notebook on a feature branch. Don't make a copy.
 
-- **Git is the safety net.** The working version stays as it is on the base branch (e.g. `3Dconv`). If the edits break something, you can compare against that version or return to it, and the base branch is never affected.
+- **Git is the safety net.** The working version stays as it is on the base branch (`main`, see D-008). If the edits break something, you can compare against that version or return to it, and the base branch is never affected.
 - **The base branch only changes when you merge**, and you merge only after the changes are verified (see step 5).
 - **Copies drift apart.** Duplicate notebooks (`train_3d_full (1).py`, `*_old.ipynb`, `*_FIXED.ipynb`) end up as diverging versions with no record of which one is right.
 

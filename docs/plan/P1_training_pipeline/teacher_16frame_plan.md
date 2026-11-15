@@ -1,5 +1,7 @@
 # Fix: Teacher always sees 16 native-stride frames
 
+> **Plan used for the teacher fix.** Implemented as D-006 (commit `c6d1036`). This file predates the task template and is kept in its original format; it moved here from `docs/Plans/` (D-009). Still open from **Done when**: the Colab Step 0 check and the GPU debug run. The branch now merges into `main`, not `3Dconv` (D-008). Task Index row: `plan.md` (this folder).
+
 **Repo:** `mu-az88/anyup`, branch `fix/teacher-full-16frame-clips` (branched from `3Dconv` @ `e696743`). Training pipeline: `Train_3D_full.ipynb` at the repo root. Cells are referred to by their markdown headings ("cell 3" … "cell 14").
 
 **Scope:** implement only this fix. Don't fix other issues you notice; add them to **Follow-ups** at the end.
