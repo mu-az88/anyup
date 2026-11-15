@@ -6,7 +6,7 @@
 
 **Comment rule:** on lines that control compute (frames, stride, batch size, resolution, token count), add a short comment and name the lines that depend on it.
 
-**Log rule:** when done, add an entry to `docs/DECISIONS.md` (Date / Branch / Decision / Where / Affects).
+**Log rule:** when done, add an entry to `docs/DECISIONS.md` (Date / Branch / Decision / Where / Affects). Also update D-001: its **Where** still says "Not implemented yet". Replace that with where the code now lives, so the log doesn't contradict itself.
 
 ## Problem
 
@@ -68,6 +68,13 @@ def sample_student_window(t_student, teacher_t, tubelet, rng=random):
 def take_window(frames, feats, f0, tok0, n_tok, tubelet):
     """frames (B, 16, ...) and feats (B, D, 8, h, w) -> matching window of each."""
     return frames[:, f0:f0 + n_tok * tubelet], feats[:, :, tok0:tok0 + n_tok].contiguous()
+
+
+def assemble_clip(got, idxs):
+    """got {frame index: frame} as decoded -> len(idxs) frames in idxs order; [] if nothing decoded.
+    Indices never decoded (video shorter than its header says) repeat the last decoded frame."""
+    frames = [got[i] for i in idxs if i in got]            # never got[i] directly: a KeyError → all-zero clip
+    return frames + [frames[-1]] * (len(idxs) - len(frames)) if frames else []
 ```
 
 **2. In the notebook:**
@@ -80,15 +87,17 @@ def take_window(frames, feats, f0, tok0, n_tok, tubelet):
 - **cell 9 (dataset):**
   - Give `UCF101TopNDataset.__init__` a `stride` argument.
   - In `_sample_frames`, replace the consecutive `start`/`wanted` logic with `idxs = sample_clip_indices(total, self.t, self.stride)`.
-  - Decode until `fi >= idxs[-1]`, keep the frames whose index is in `set(idxs)`, then build the list in `idxs` order. Indices can repeat on short clips.
-  - Change the fallback to `total = stream.frames or self.t * self.stride`. Keep the existing padding loop.
+  - Decode until `fi >= idxs[-1]`, storing each frame whose index is in `set(idxs)` in a dict `got`. Then set `frames = assemble_clip(got, idxs)`, imported from `teacher.py`. Indices can repeat on short clips.
+  - Don't look up `got[i]` directly in the notebook. A video can be shorter than `stream.frames` claims. A direct lookup would then raise a `KeyError`, and the existing `except Exception` would silently turn the whole clip into zeros. `assemble_clip` skips missing indices and repeats the last decoded frame instead.
+  - Change the fallback to `total = stream.frames or self.t * self.stride`. Keep the existing padding loop; it now only matters when nothing could be decoded at all (zeros).
   - `build_loader` passes `stride=cfg.frame_stride`.
 - **cell 9 and cell 13:** pass `TEACHER_T` instead of `current_stage.t` (or `8`) to **all five** `build_loader` calls: the quick test (cell 9), initial, curriculum switch, StopIteration, and validation (cell 13).
-- **cell 12:** delete the old `extract_teacher_features`, including the position-embedding interpolation. Import the four functions from `anyup.data.training.teacher` instead. Leave `get_rgb_diff_gate` unchanged.
+- **cell 12:** delete the old `extract_teacher_features`, including the position-embedding interpolation. Import the teacher functions from `anyup.data.training.teacher` instead (`assemble_clip` is imported in cell 9, which runs earlier). Leave `get_rgb_diff_gate` unchanged.
 - **cell 13 (training step):**
 
 ```python
-crop_high, crop_low = sample_tube_crop(video)                     # (B, 16, ...)
+with torch.no_grad():                                             # keep the existing wrapper
+    crop_high, crop_low = sample_tube_crop(video)                 # (B, 16, ...)
 f0, tok0, n_tok = sample_student_window(current_stage.t, TEACHER_T, TUBELET_SIZE)  # student T drives VRAM
 
 gt_full  = extract_teacher_features(encoder, crop_high, device)   # (B, 768, 8, 14, 14)
@@ -105,6 +114,14 @@ T_tok = n_tok
   - `VAL_N_TOK = max(s.t for s in cfg.t_schedule) // TUBELET_SIZE` (4).
   - `tok0 = (TEACHER_T // TUBELET_SIZE - VAL_N_TOK) // 2` (2), and `f0 = tok0 * TUBELET_SIZE`.
   - Use `batch_size=1` for the validation loader.
+  - Apply the window, as in the training step. Run the teacher on the full 16-frame `val_high` / `val_low`, then slice:
+
+```python
+val_high_s, val_gt  = take_window(val_high, val_gt_full,  f0, tok0, VAL_N_TOK, TUBELET_SIZE)
+val_low_s,  val_gui = take_window(val_low,  val_gui_full, f0, tok0, VAL_N_TOK, TUBELET_SIZE)
+```
+
+  - Downsample the sliced `val_gui` to 7×7, and pass `val_high_s.permute(0, 2, 1, 3, 4)` (not the full `val_high`) as the AnyUp guide.
 - **cell 14 (smoke test):** leave unchanged. It doesn't call the teacher.
 
 ## Tests: `tests/test_teacher_16frame.py`
@@ -116,7 +133,7 @@ import random
 import pytest
 import torch
 from transformers import VideoMAEConfig, VideoMAEModel
-from anyup.data.training.teacher import (extract_teacher_features, sample_clip_indices,
+from anyup.data.training.teacher import (assemble_clip, extract_teacher_features, sample_clip_indices,
                                          sample_student_window, take_window)
 
 
@@ -173,13 +190,30 @@ def test_frames_match_tokens(t):
     f0, tok0, n = sample_student_window(t, 16, 2, random.Random(1))
     fw, tw = take_window(frames, feats, f0, tok0, n, 2)
     assert torch.equal(fw.flatten()[::2] // 2, tw.flatten())   # tubelet k covers frames 2k, 2k+1
+
+
+def test_assemble_clip_missing_tail():
+    idxs = list(range(0, 64, 4))                           # header claimed 64 frames → 0, 4, …, 60
+    got = {i: torch.tensor(float(i)) for i in idxs if i <= 30}   # video actually ended at frame 30
+    clip = [c.item() for c in assemble_clip(got, idxs)]
+    assert clip == idxs[:8] + [28.0] * 8                   # no KeyError, no zeros: last real frame repeated
+
+
+def test_assemble_clip_keeps_order_and_repeats():
+    idxs = sample_clip_indices(10, 16, 4, random.Random(0))     # short clip → repeated indices
+    got = {i: torch.tensor(float(i)) for i in set(idxs)}
+    assert [c.item() for c in assemble_clip(got, idxs)] == idxs
+
+
+def test_assemble_clip_nothing_decoded():
+    assert assemble_clip({}, list(range(16))) == []        # notebook's padding loop fills zeros
 ```
 
 ## Done when
 
 - Step 0 is confirmed, and `pytest tests/test_teacher_16frame.py` passes.
 - No position-embedding interpolation remains, all five `build_loader` calls use `TEACHER_T`, and the loader returns `(B, 16, 3, 256, 256)`.
-- A debug run (with `start_step` values lowered temporarily, then restored) completes one step at T=2, 4 and 8 with finite losses. Report peak VRAM **and it/s** per stage. Stride-4 decoding reads about 61 frames per clip, so check whether the loader (`num_workers=2`) becomes the bottleneck.
+- A debug run (with `start_step` values lowered temporarily, then restored) completes one step at T=2, 4 and 8 with finite losses. Report peak VRAM **and it/s** per stage. Stride-4 decoding reads about 61 frames per clip, so check whether the loader (`num_workers=2`) becomes the bottleneck. Also time one validation pass. It loops over the whole test split at `batch_size=1`, with two 16-frame teacher passes per clip, every `val_every_n_steps`. If it's slow, report the time; don't change it in this branch.
 - `docs/DECISIONS.md` has an entry for this change.
 
 **Note:** retrain from the 2D init (`cfg.resume = None`, new `experiment_name`). Don't resume run_02 checkpoints; they were trained against degraded GT.

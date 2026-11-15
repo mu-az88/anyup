@@ -74,7 +74,7 @@ Remove the old `feat_diff` code and the gate-resize branch. Keep `get_rgb_diff_g
 **4. Logging (cell 13):** next to `loss/temporal`, add
 `writer.add_scalar("loss/temp_over_rec", loss_temp.item() / max(loss_rec.item(), 1e-8), step)`.
 
-**5. λ needs retuning.** Report `loss/temp_over_rec` early in the T=4 stage, once warmup finishes (step ≈ 10000). The target is roughly 0.1–0.3. Suggest a value for `lambda_temporal_consistency`, but don't auto-tune or change it without asking.
+**5. λ needs retuning (after merge, not part of "Done when").** This needs a real training run to step ≈ 10000, so do it after the branch is merged, not as a condition for finishing it. Report `loss/temp_over_rec` early in the T=4 stage, once warmup finishes (step ≈ 10000). The target is roughly 0.1–0.3. Suggest a value for `lambda_temporal_consistency`, but don't auto-tune or change it without asking.
 
 ## Tests: `tests/test_temporal_dynamics_loss.py`
 
@@ -134,5 +134,5 @@ def test_bf16_and_gradient():
 - `pytest tests/test_temporal_dynamics_loss.py` passes, and `tests/test_losses.py` still passes (it should be untouched).
 - The old `feat_diff` loss is gone from the training step.
 - `get_temporal_lambda(TEMP_START_STEP) == 0` and it reaches full λ at `TEMP_START_STEP + temporal_lambda_warmup_steps`.
-- A debug run reaching T=4 (with `start_step` lowered temporarily, then restored) shows a finite, non-zero `loss/temporal` and logs `loss/temp_over_rec`. Report the ratio.
+- A debug run reaching T=4 (with `start_step` lowered temporarily, then restored) shows a finite, non-zero `loss/temporal` and logs `loss/temp_over_rec`. Report the ratio seen in the debug run. This is only a sanity check: warmup hasn't finished yet, so it isn't the Step 5 tuning number.
 - `docs/DECISIONS.md` has an entry for this change.
