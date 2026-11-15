@@ -36,8 +36,8 @@ Shape-adaptation rules
 Usage
 -----
     python scripts/load_2d_weights.py \
-        --checkpoint anyup_multi_backbone.pth \
-        --output     anyup3d_init.pth \
+        --checkpoint weights/anyup_multi_backbone.pth \
+        --output     weights/anyup3d_init.pth \
         [--t_k 3]
 """
 
