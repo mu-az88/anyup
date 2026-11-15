@@ -143,7 +143,7 @@ Entry format:
   - `docs/experiments/doc_content.py`: the Exp 1 protocol line.
   - `docs/plan/P1_experiments/plan.md:32`: an inline correction.
 
-  The wrapper's `window_t=4` value is unchanged. `tests/test_upsamplers.py` 34 passed. `docs/experiments/experiments.html` still has the old text: rebuild it with `build_docs.py` after committing (it refuses a dirty tree).
+  The wrapper's `window_t=4` value is unchanged. `tests/test_upsamplers.py` 34 passed. `docs/experiments/experiments.html` was rebuilt with `build_docs.py` after committing (it refuses a dirty tree); it documents commit `99ff830`.
 - **Where:** the files above; `docs/plan/P1_training_pipeline/T02_training_window_t_passthrough.md` (Q&A, Design, Steps, Log); S13 "how to check" updated.
 - **Affects:** D-015. Changes Munther's code comments and docs (T03's `ANYUP3D_ARCH` note, `project_context.md`) at Muaaz's request; Munther's closed task files T01/T03/T06 are left as historical records. Cells 3/7 of the notebook are unchanged until T02_training is implemented on its own branch.
 

@@ -96,7 +96,7 @@ _Updated live during implementation. Per step: what changed, files touched, test
 - **2026-11-15: Q2 done early**, on `fix/teacher-full-16frame-clips` (D-016). The wrapper value stays 4; only comments and notes change:
   - `anyup/upsamplers.py`: the `ANYUP3D_ARCH` comment says training never passed `window_t`, and that 4 is an evaluation choice. The `window_t` line comment says "tubelets" (it said "frames") and drops "training used 4".
   - `docs/context/project_context.md:28`: rewritten with the facts (default `None` → 3, all the same at ≤ 4 tubelets, unmeasured at 8).
-  - `docs/experiments/doc_content.py`: Exp 1 protocol line corrected. **`docs/experiments/experiments.html` is not rebuilt yet**: `build_docs.py` refuses a dirty tree, so rebuild it after commit.
+  - `docs/experiments/doc_content.py`: Exp 1 protocol line corrected. `docs/experiments/experiments.html` rebuilt after commit (`build_docs.py`, clean tree, documents `99ff830`).
   - `docs/plan/P1_experiments/plan.md:32`: inline correction note, in Munther's `_(…)_` style.
   - Check: `tests/test_upsamplers.py` 34 passed; both edited `.py` files parse.
 - Status stays `Q&A` until you OK the remaining steps (cells 3/7, test, Colab check). That work goes on its own branch after the teacher fix merges.
