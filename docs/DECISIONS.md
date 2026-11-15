@@ -168,3 +168,79 @@ Entry format:
   Nothing is moved yet. Implementation waits for the OK, on its own branch.
 - **Where:** `docs/plan/P1_training_pipeline/T03_training_retire_train_3d_script.md` (Q&A, Scope, Design, Log), `plan.md` Task Index.
 - **Affects:** D-017. Q5 keeps the `checkpoints/anyup3d/` files tracked, consistent with D-014 (no `.gitignore` rule).
+
+## D-019 — Teacher fix Step 0 passed on Colab
+- **Date:** 2026-11-15
+- **Branch:** fix/teacher-full-16frame-clips (pushed at `fa2f7fd`)
+- **Decision:** Ran the teacher plan's Step 0 on Colab, after cells 1–6 in a scratch cell that wasn't saved. Result:
+  - `transformers` 5.22.1 (local venv: 5.5.4);
+  - `encoder.embeddings.position_embeddings` is a plain `Tensor`, not an `nn.Parameter`, of shape `(1, 1568, 768)`;
+  - `VideoMAEEmbeddings.forward` contains no interpolation path. It adds `self.position_embeddings.detach().type_as(...)` directly to the patch embeddings, then applies the optional `bool_masked_pos` mask.
+
+  Same behavior as 5.5.4, as the plan expected, so the fix's assumption holds on Colab: the teacher needs exactly 16 frames × 224² (1568 tokens), and the table is never modified.
+- **Where:** Colab only; no code changed. `teacher_16frame_plan.md` header note and `plan.md` Task Index updated.
+- **Affects:** D-006 "Done when": Step 0 done; the GPU debug run (T=2/4/8 peak VRAM, it/s, validation time) is still open.
+
+## D-020 — UCF101 top-10 archive rebuilt on Drive
+- **Date:** 2026-11-15
+- **Branch:** fix/teacher-full-16frame-clips (no code change)
+- **Decision:** `MyDrive/anyup3d/ucf101_top10.tar.gz` had been deleted by accident, so cell 9 raised `FileNotFoundError`. It was rebuilt in a separate Colab session with the steps of the original `Data_Preparation_UCF101.ipynb` (deleted in `b42d019`; it came from sayakpaul/Action-Recognition-in-TensorFlow):
+  - official UCF101 + `trainlist01` / `testlist01`;
+  - the 10 classes with the most training videos.
+
+  Three fixes, so the archive matches what cell 9 expects:
+  - the files sit inside a top-level `ucf101_top10/` folder (cell 9 extracts to `/content/` and reads `/content/ucf101_top10/`);
+  - real gzip (`tar czf`; the old notebook used `tar cf` under a `.gz` name, which cell 9's `tar -xzf` would reject);
+  - a pandas ≥ 2 fix for reading the top-10 class names.
+
+  Result: 10 classes (BoxingPunchingBag, CricketShot, Drumming, HorseRiding, PlayingCello, PlayingDhol, PlayingGuitar, Punch, ShavingBeard, TennisSwing), **1171 train / 459 test videos**, 965 MB. These counts equal the original notebook's saved output `((1171, 2), (459, 2))`, and the only class names saved from the original data (`PlayingCello`, `BoxingPunchingBag`, in the training notebook's old cell 9 output) are both in the list. The files can't be proven byte-identical to the deleted archive.
+- **Where:** Google Drive only. The rebuild cell is not in the repo.
+- **Affects:** run_03 data. It should be the same as the data run_02 used. run_02 and run_03 aren't comparable anyway (D-006). The validation timing in the teacher debug run uses this test split (459 clips).
+
+## D-021 — Teacher fix GPU debug run (T4): T=2 and T=4 pass, T=8 runs out of memory
+- **Date:** 2026-11-15
+- **Branch:** fix/teacher-full-16frame-clips (pushed at `fa2f7fd`; no code change)
+- **Decision:** Ran the debug pass on a Colab **Tesla T4 (14.6 GiB)**, with temporary scratch cells 12.5/13.5 that weren't saved. The run used 15 steps, 5 per stage, start steps 0/5/10. The plan says 1 step per stage (start steps 0/1/2); 5 steps were used so the speed isn't dominated by start-up. Debug output went to the `debug_teacher` folders on Drive.
+  - Cell 9: archive extracted (the rebuilt one, D-020); loader batch `(2, 16, 3, 256, 256)`.
+  - **T=2, batch 2:** 5 steps, all losses finite; median 2.87 s/step (0.35 it/s); first step 6.0 s; peak 9.91 GiB allocated / 10.06 GiB reserved (69%).
+  - **T=4, batch 1:** 5 steps, all losses finite; median 2.45 s/step (0.41 it/s); first step 3.0 s; peak 9.94 / 10.16 GiB (70%).
+  - Curriculum switches T=2→4 at step 5 and 4→8 at step 10, as configured. `loss/temporal` = 0 (warmup), as expected.
+  - **T=8, batch 1: `CUDA out of memory` on its first step** (step 10), in the self-consistency forward `pred_aug = anyup(crop_high_5d, gt_aug_low, …)` (cell 13), inside `query_encoder`'s Conv3d. 14.28 GiB allocated by PyTorch at the time.
+  - Validation was not reached, so its time is unmeasured.
+- **Where:** Colab only. `teacher_16frame_plan.md` header and `plan.md` Task Index updated.
+- **Affects:**
+  - D-006 "Done when" is **not met** for T=8 (OOM) or the validation time. T=2/4 meet it.
+  - Inference, not measured: peak memory tracks the student's frames per step (T=2 × B2 and T=4 × B1 are both 4 frames, with equal peaks; T=8 × B1 is 8 frames), and the self-consistency pass runs the whole student a second time on the same image, keeping its activations for backward. The teacher runs under `no_grad`. So the OOM is most likely the existing memory budget of the training step at 8 frames, not the teacher fix. run_02 stopped near step 6500, before the T=8 stage (`start_step=15000`), so T=8 had probably never run on a T4.
+  - As configured, run_03 on a T4 would crash at step 15000. At ≈ 0.4 it/s, 50k steps ≈ 35 h or more. Related to D-002 / S11 (student T gap).
+
+## D-022 — T=8 OOM handled separately: teacher fix accepted on T=2/4; T04_training planned; validation timing rerun
+- **Date:** 2026-11-15
+- **Branch:** fix/teacher-full-16frame-clips
+- **Decision:** Muaaz approved all three recommendations after D-021:
+  1. The teacher fix counts as working on T=2/4. Its T=8 debug check moves to T04_training (skipped item S14).
+  2. **T04_training** (task file written, Q&A with 5 questions): compute AnyUp's image half (image encoder + RoPE, `query_encoder`, `key_encoder`) once per training step and reuse it for the main and self-consistency passes. It is **not an architecture change**: same layers, weights, checkpoint format and outputs; gradients equal in math, with only rounding-level differences.
+  3. Rerun the debug pass with validation at the end of the T=4 stage (`val_every_n_steps=10`), so the validation time is measured before T=8 runs out of memory.
+- **Where:** `docs/plan/P1_training_pipeline/T04_training_shared_image_encoding.md` (new), `plan.md` Task Index, `teacher_16frame_plan.md` header note, `docs/skipped_and_future_concerns.md` (S14).
+- **Affects:** Changes D-006's "Done when" for merging the teacher fix: T=8 is no longer required there (it's S14 / T04_training). The validation time is still required. T04_training would change `anyup/model.py`, which Munther's experiments use through `forward` (Q2). `forward`'s outputs must stay equal.
+
+## D-023 — Validation time measured; teacher fix "Done when" met
+- **Date:** 2026-11-15
+- **Branch:** fix/teacher-full-16frame-clips (no code change)
+- **Decision:** Reran the T4 debug pass with validation after step 9 (end of the T=4 stage), per D-022, with temporary cells 12.5/13.5 that weren't saved. Results:
+  - **Validation:** 50 of 459 test clips in 42 s = **0.83 s/clip → full pass ≈ 6.4 min**. Batch 1, fixed centred 4-tubelet window, no gradients. Peak during validation 1.31 GiB allocated (10.16 GiB reserved, cached from training). `val_rec` = 0.1230 at step 10.
+  - T=2: median 2.93 s/step (0.34 it/s), peak 9.91 / 10.06 GiB. T=4: 2.44 s/step (0.41 it/s), peak 9.94 / 10.16 GiB. Both match D-021.
+  - **All 10 training-step losses are identical to D-021's run** (same seed), so these steps are reproducible run to run on this setup.
+  - T=8 ran out of memory again at step 10, as expected (S14 → T04_training).
+  
+  With this, every remaining item of the teacher plan's "Done when" is met, except T=8, which D-022 moved out:
+  - Step 0 (D-019);
+  - pytest 20/20;
+  - no position-embedding interpolation;
+  - all loaders give 16 frames;
+  - finite losses at T=2/4 with VRAM and it/s reported;
+  - validation time;
+  - log entries.
+  
+  The teacher fix is **done** and ready to merge into `main` (after `3Dconv` → `main`, D-008).
+- **Where:** Colab only; `teacher_16frame_plan.md` header note and `plan.md` Task Index updated.
+- **Affects:** Not changed in this branch (the plan says to report, not change): with `val_every_n_steps=1000`, a 50k-step run does about 50 validation passes ≈ 5.3 h, on top of ≈ 35 h of training at ≈ 0.4 it/s. It is a candidate for a later task (fewer or smaller validation passes) if run time matters. Relates to D-021 (T4 throughput) and T04_training (T=8 memory).

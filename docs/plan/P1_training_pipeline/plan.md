@@ -10,7 +10,7 @@
 
 ## Done Before This Template
 
-- **Teacher 16-frame fix**, branch `fix/teacher-full-16frame-clips` (D-001, D-004–D-006). It was planned in the older format and kept as is: `teacher_16frame_plan.md` (this folder). Local work and tests are done (commit `c6d1036`). The Colab Step 0 check and GPU debug run are still open, and it isn't merged yet.
+- **Teacher 16-frame fix**, branch `fix/teacher-full-16frame-clips` (D-001, D-004–D-006). It was planned in the older format and kept as is: `teacher_16frame_plan.md` (this folder). Local work and tests are done (commit `c6d1036`). Colab Step 0 passed (D-019); debug run T=2/4 pass, validation ≈ 6.4 min per pass (D-021, D-023); T=8 moved to T04_training (S14). Done; not merged yet.
 
 ## Task Index
 
@@ -18,7 +18,8 @@ Task IDs run across all of Muaaz's plans (`P2_training` continues from the last 
 
 | ID | Task | Phase | Status | File |
 |---|---|---|---|---|
-| — | Teacher always sees 16 native-stride frames (pre-template) | — | in progress (Colab checks open) | `teacher_16frame_plan.md` |
+| — | Teacher always sees 16 native-stride frames (pre-template) | — | done (D-023; T=8 → T04_training / S14); not merged yet | `teacher_16frame_plan.md` |
 | T01_training | Temporal loss matches teacher dynamics | — | Q&A | `T01_training_temporal_dynamics_loss.md` |
 | T02_training | Pass `window_t` from the config to the model (S13) | — | Q&A (Q1–Q3 answered; Q2 part done early) | `T02_training_window_t_passthrough.md` |
 | T03_training | Retire `train_3d.py`; `Train_3D_full.ipynb` is the training entry point | — | Q&A (all answered) | `T03_training_retire_train_3d_script.md` |
+| T04_training | Compute the image half once per training step, so T=8 fits on a T4 (S14) | — | Q&A | `T04_training_shared_image_encoding.md` |
