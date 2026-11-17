@@ -40,6 +40,9 @@ REPRODUCIBILITY = [
     ("Each notebook clones the repository at a fixed branch on Colab (Cell 1), sets "
      "`CUBLAS_WORKSPACE_CONFIG` before CUDA starts, and seeds Python, NumPy and PyTorch with deterministic "
      "kernels (`set_seed`). Exp 0 also measures a non-deterministic `fast` mode."),
+    ("Exp 1–3 each end with an optional visual check (`RUN_VISUALS`, T10) built on `anyup.viz`. It reads the saved "
+     "results, so it runs without the main loop, picks the items with the largest AnyUp3D gains plus the worst one, "
+     "and writes figures (and, for Exp 2 and 3, MP4 and GIF videos) to `visuals/` next to the results."),
     ("Results are written by `save_results`: a per-item CSV (clip, image or measurement) and a summary JSON "
      "holding the summary, the full config and the environment (git commit and dirty flag, GPU, CUDA, package "
      "versions, checkpoint SHA-256)."),
@@ -69,7 +72,7 @@ EXPERIMENTS = {
         ],
         "flow_note": "Main row: T = 8, S = 224, q = 4096. Sweep: S ∈ {56, 112, 224}, T ∈ {4, 8, 16}, AnyUp3D q ∈ {None, 1024, 4096}.",
         "steps": {
-            1: "Sets `CUBLAS_WORKSPACE_CONFIG`, mounts Drive, clones or switches `/content/anyup` to `REPO_BRANCH` and installs the package. Identical in all four notebooks.",
+            1: "Sets `CUBLAS_WORKSPACE_CONFIG`, mounts Drive, clones or switches `/content/anyup` to `REPO_BRANCH` and installs the package. Identical in all four notebooks except `REPO_BRANCH` (Exp 1–3 clone `experiments-in-action-test` since T10).",
             2: "GPU profile (warm-up and repeat counts), the main setting, the sweep grid and the thesis reference values.",
             3: "Loads the three upsamplers, counts parameters (fp32 size) and checks the AnyUp3D count against the thesis value of 1,540,736. `set_mode` switches between `fast` and `deterministic` seeding.",
             4: "Builds synthetic inputs from a fixed seed and times one call: warm-up calls, then repeated calls timed with CUDA events. Peak memory is read after resetting the peak counter; the extra peak is the peak minus the memory in use before the calls. An out-of-memory error is recorded as `OOM`.",
@@ -102,7 +105,7 @@ EXPERIMENTS = {
     "exp1": {
         "title": "Exp 1 · ADE20K linear probe",
         "nav": "Exp 1 · ADE20K probe",
-        "provenance": "T06 refactor, T07 clean-up",
+        "provenance": "T06 refactor, T07 clean-up, T10 visual cell",
         "purpose": [
             ("Exp 1 checks that AnyUp3D does not lose spatial quality on single images. DINOv2-base features of "
              "ADE20K images (T = 1) are upsampled to 224², and a linear 1×1 convolution is trained on them for each "
@@ -121,12 +124,12 @@ EXPERIMENTS = {
         "flow_note": "Masks are resized with nearest neighbour to 224². `forward_images` treats the batch as unrelated images (each a one-frame clip), never as consecutive frames.",
         "steps": {
             1: "Same setup cell as the other notebooks.",
-            2: "GPU profile (A100 = full protocol; T4 = a small test profile whose numbers are not for reporting), data subset, image size and optimizer settings.",
+            2: "GPU profile (A100 = full protocol; T4 = a small test profile whose numbers are not for reporting), data subset, image size and optimizer settings, and the optional visual cell (`RUN_VISUALS`, `VIZ_RUN_DIR`, `VIZ_ITEMS`, `N_EXAMPLES`, `PCA_SAMPLE`).",
             3: "Extracts ADE20K from the Drive zip and lists image–mask pairs. DINOv2-base features are extracted once into an fp16 cache, built on local disk, mirrored to Drive and reused across sessions; the backbone is then freed and the three upsamplers are loaded.",
             4: "Defines the probe: a 1×1 convolution from 768 channels to 150 classes, trained with AdamW and a step learning-rate schedule. Each (condition, seed) run evaluates on the validation set after every epoch, checkpoints the head to Drive so a disconnected run resumes, and records per-image mIoU in the last epoch.",
             5: "Loops over conditions and seeds; finished runs are skipped when the cell is re-run.",
             6: "Per condition: mIoU per seed, mean ± std and mean per-image mIoU. Paired statistics of AnyUp3D against each baseline over images (per-image mIoU averaged over seeds; images without labelled pixels dropped) and over seeds. Saves `exp1_per_item.csv` and `exp1_summary.json`.",
-            7: "Optional figure of the trained heads' predictions on a few validation images.",
+            7: "Optional visual check, runnable after Cells 1–4 without the main loop. Images are chosen from the per-image mIoU of the first seed (from Cell 5 or the saved CSV): the largest AnyUp3D − AnyUp2D gains plus the worst image, marked in red; without scores, the first validation images. Figure A shows the image, the 16² DINOv2 features and the three upsampled feature maps as PCA colours (one basis per image, fitted jointly on all columns, colour scale fixed per method), so sharpness and edge alignment can be compared without any trained head. Figure B shows the linear-probe segmentation next to the ground truth, with per-image mIoU; it runs only if the head checkpoints exist and warns when they come from the T4 test profile. Unlabelled pixels are black. Outputs go to `visuals/` with `visuals_selection.json`.",
         },
         "implicit": {
             3: ["BackboneAdapter.forward", "DINOv2Adapter._extract"],
@@ -157,7 +160,7 @@ EXPERIMENTS = {
     "exp2": {
         "title": "Exp 2 · Temporal consistency",
         "nav": "Exp 2 · Temporal consistency",
-        "provenance": "T05 refactor, T07 clean-up",
+        "provenance": "T05 refactor, T07 clean-up, T10 visual cell",
         "purpose": [
             ("Exp 2 measures temporal consistency: for each pair of adjacent feature frames, the cosine "
              "similarity between the two feature vectors at each pixel, averaged over pixels and then over the "
@@ -178,11 +181,11 @@ EXPERIMENTS = {
         "flow_note": "t ≤ 8 feature frames per chunk (VideoMAE tubelet 2). Overlapping outputs are kept from the earlier chunk, so a clip of N frames gives ⌈N/2⌉ feature frames, frames 0, 2, 4, … (checked per clip).",
         "steps": {
             1: "Same setup cell as the other notebooks.",
-            2: "Clips, checkpoint, conditions, guide size, chunking and AnyUp3D query chunk.",
+            2: "Clips, checkpoint, conditions, guide size, chunking and AnyUp3D query chunk, and the optional visual cell (`RUN_VISUALS`, `VIZ_RUN_DIR`, `VIZ_ITEMS`, `N_VIZ_CLIPS`, `VIZ_N_FRAMES`, `PCA_SAMPLE`, `VIDEO_FPS`).",
             3: "Seeds the run, downloads DAVIS-2017, lists the 30 validation clips, and loads VideoMAE (guide at `GUIDE_SIZE`) and the upsamplers.",
             4: "For each clip the backbone runs once: `iter_backbone_chunks` splits all frames into chunks of 16 with 8 frames of overlap. Each condition then streams over the chunks into a `TemporalCosineStream`, which marks the first pair of every later chunk as a cross-boundary pair, so no full-clip upsampled tensor is held in memory. A check confirms the kept feature frames are exactly frames 0, 2, 4, … of the clip.",
             5: "Mean ± std over clips of `all`, `within` and `cross` per condition, and paired statistics of AnyUp3D against each other condition on per-clip `all`. Saves `exp2_per_item.csv` and `exp2_summary.json`.",
-            6: "Optional figure: the first three PCA components of the upsampled features of one chunk, one row per upsampler.",
+            6: "Optional visual check, runnable after Cells 1–3 without the main loop. Clips are chosen from the per-clip temporal cosine (from Cell 4 or the saved CSV): the largest AnyUp3D − AnyUp2D gains plus the smallest. Each chosen clip is run again chunk by chunk; only PCA colours and flicker maps are kept. The PCA basis is fitted jointly on the first chunk of all upsamplers and its colour scale is fixed for the whole clip, so colour changes in the video come from the features, not from the plot. The flicker map is 1 − the per-pixel cosine between consecutive feature frames (dark = stable); its mean is checked against the saved temporal cosine of the clip (PASS below 1e-6). Per clip: a figure (input frames, then a PCA row and a flicker row per upsampler), a curve of the per-pair cosine with chunk starts marked, and an MP4 (H.264) and GIF of the whole clip.",
         },
         "implicit": {
             4: ["BackboneAdapter.forward", "VideoMAEAdapter._extract", "Upsampler.forward",
@@ -210,7 +213,7 @@ EXPERIMENTS = {
     "exp3": {
         "title": "Exp 3 · Label propagation (video object segmentation)",
         "nav": "Exp 3 · Label propagation",
-        "provenance": "T05 refactor, T07 clean-up",
+        "provenance": "T05 refactor, T07 clean-up, T10 visual cell",
         "purpose": [
             ("Exp 3 tests whether more consistent features help a downstream video task without any training. "
              "In semi-supervised video object segmentation by non-parametric label propagation (Jabri et al. "
@@ -233,11 +236,11 @@ EXPERIMENTS = {
         "flow_note": "Chunks of 16 frames without overlap: Swin-T runs per frame (each frame duplicated into a two-frame clip), so overlap would not change any feature. The first and last frames are not scored (official protocol).",
         "steps": {
             1: "Same setup cell as the other notebooks.",
-            2: "Clips, checkpoint, conditions, Swin-T input normalization, propagation size, chunking and propagation settings.",
+            2: "Clips, checkpoint, conditions, Swin-T input normalization, propagation size, chunking and propagation settings, and the optional visual cell (`RUN_VISUALS`, `VIZ_RUN_DIR`, `VIZ_ITEMS`, `N_VISUAL_CLIPS`, `VISUAL_FRAME_FRAC`, `VISUAL_FPS`, `VISUAL_SIZE`).",
             3: "Seeds the run, downloads DAVIS-2017, loads Swin-T in per-frame mode with Kinetics normalization (guide at `PROP_SIZE`) and the upsamplers, and clears this run's mask folder.",
             4: "For each clip the backbone runs once in chunks of 16. Each condition upsamples every chunk to 56², concatenates them and propagates the frame-0 labels with `propagate_labels`. Predictions are written as palette PNGs at native resolution in the official results layout and read back, so the score is computed on exactly what the DAVIS toolkit would read.",
             5: "`summarize_jf` aggregates over objects as the official toolkit does; paired statistics of AnyUp3D against each baseline use per-clip J&F. Saves `exp3_per_item.csv`, `exp3_summary.json` and the zipped masks.",
-            6: "Optional stills and a side-by-side comparison video for a few clips.",
+            6: "Optional visual check, runnable after Cells 1–3 without the main loop: it reads the per-clip J&F (from Cell 4 or the saved CSV) and the predicted masks (local, or unzipped from the saved `masks.zip`). Clips are the largest AnyUp3D − AnyUp2D J&F gains plus the worst clip, marked in red. The stills show, per clip, frame 0 with the given mask, the ground truth at 80 % of the clip (propagation errors grow over time) and the three predictions with their J&F. Each chosen clip also gets an MP4 (H.264) and GIF of the ground truth and the three predictions side by side.",
         },
         "implicit": {
             4: ["BackboneAdapter.forward", "SwinTAdapter._extract", "Upsampler.forward",

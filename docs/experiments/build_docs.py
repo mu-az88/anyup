@@ -42,6 +42,7 @@ HELPER_FILES = [   # modules the notebooks import from; module path → file
     ("anyup.metrics", "anyup/metrics.py"),
     ("anyup.ade20k", "anyup/ade20k.py"),
     ("anyup.utils.seed", "anyup/utils/seed.py"),
+    ("anyup.viz", "anyup/viz.py"),             # T10: PCA colours, flicker maps, overlays, MP4/GIF for the visual cells
     ("anyup.model", "anyup/model.py"),         # AnyUp3D network (reached through AnyUp3DUpsampler)
     ("anyup.model_2d", "anyup/model_2d.py"),   # AnyUp2D network (reached through AnyUp2DUpsampler)
 ]

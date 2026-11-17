@@ -88,7 +88,7 @@ These are suggestions, to confirm with the supervisor and against the paper's sc
 
 ## Immediate Next Step
 
-**P1 is closed (2026-11-10).** All tasks T01–T09 are done. Open items moved to `docs/skipped_and_future_concerns.md`: A100 runs S02 (Exp 1 full), S03 (T03 224² regression), S07 (Exp 0); checkpoint choice S06; `drift-straight` collapse S08; thesis-gap separation S09; phase closure S10. The next phase (P2, training-pipeline fixes) will be planned in a new chat on a new branch; task IDs continue from T10. Documentation of the P1 experiments: `docs/experiments/experiments.html` (built by `docs/experiments/build_docs.py`).
+**P1 is closed (2026-11-10).** All tasks T01–T09 are done. Open items moved to `docs/skipped_and_future_concerns.md`: A100 runs S02 (Exp 1 full), S03 (T03 224² regression), S07 (Exp 0); checkpoint choice S06; `drift-straight` collapse S08; thesis-gap separation S09; phase closure S10. The next phase (P2, training-pipeline fixes) will be planned in a new chat on a new branch; task IDs continue from T10. Documentation of the P1 experiments: `docs/experiments/experiments.html` (built by `docs/experiments/build_docs.py`). **Addendum T10** (branch `experiments-in-action-test`): presentation-grade visual cells for Exp 1–3 + `anyup/viz.py`; the docs generator now indexes `anyup.viz`.
 
 ## Task Index
 
@@ -105,3 +105,4 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | T07 | Reproducibility audit (shared deterministic seeding, env/versions/git/ckpt hash in results) + LEGACY removal | A.5 | done | `T07_reproducibility.md` |
 | T08 | Exp 0 efficiency notebook (params, time, memory; renamed from Exp 4) | B wrap-up | done (run 1 on a T4; A100 run skipped → S07) | `T08_exp0_efficiency.md` |
 | T09 | Interactive HTML documentation of Exp 0–3 (pages, steps, code, helper links) | B wrap-up | done | `T09_experiments_html_docs.md` |
+| T10 | Presentation-grade visual checks for Exp 1–3 (upgraded visual cells, `anyup/viz.py`, MP4/GIF) — P1 addendum | B wrap-up | in progress | `T10_visual_checks.md` |

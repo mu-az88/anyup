@@ -19,6 +19,7 @@ AnyUp3D extends **AnyUp** (resolution-agnostic 2D feature upsampling) to **video
 - Datasets: UCF-101 (training), DAVIS-2017 (evaluation), ADE20K (spatial benchmark).
 - Backbones: VideoMAE (`MCG-NJU/videomae-base`, the training backbone), Video Swin-T (torchvision, Kinetics-400), DINOv2 (timm via `anyup/backbone/vit_wrapper.py`).
 - Experiments: Exp 0 = efficiency (params, time, memory; synthetic inputs); Exp 1 = ADE20K linear-probe mIoU (DINOv2, T=1); Exp 2 = DAVIS temporal cosine (VideoMAE); Exp 3 = DAVIS label-propagation J&F (Swin-T per-frame).
+- Visual checks (T10): Exp 1–3 end with an optional `RUN_VISUALS` cell built on `anyup.viz`. It reads the saved results (`VIZ_RUN_DIR`), so no main loop is needed, and writes PNG/MP4/GIF to `<run>/visuals/`. PCA colours use a fixed per-method scale for the whole clip (per-frame scaling would fake flicker).
 
 ## Implementation Gotchas (do not break these)
 
