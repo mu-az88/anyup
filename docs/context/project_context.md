@@ -14,7 +14,7 @@ AnyUp3D extends **AnyUp** (resolution-agnostic 2D feature upsampling) to **video
 ## Environment
 
 - Google Colab (T4 / A100); Google Drive for checkpoints.
-- Repo: `https://github.com/mu-az88/anyup.git`, branch `3Dconv`, cloned to `/content/anyup`.
+- Repo: `https://github.com/mu-az88/anyup.git`, base branch `main` (since D-008; `3Dconv` was merged into it, D-026), cloned to `/content/anyup`. Each task runs on its own branch, which Colab notebooks clone via `REPO_BRANCH`. The P1 experiment notebooks still clone `experiments-task02` (D-029).
 - Checkpoints: `run_02/anyup3d_step6500.pth` (or step6000, **unresolved**), `run_01/anyup3d_step10000.pth`. SHA-256 (T07): Drive `results/anyup3d_step6500.pth` = `dbdc32f2…66149e3`; AnyUp2D `anyup_paper.pth` = `9d035c0f…022901b2` (full values in `T07_reproducibility.md`).
 - Datasets: UCF-101 (training), DAVIS-2017 (evaluation), ADE20K (spatial benchmark).
 - Backbones: VideoMAE (`MCG-NJU/videomae-base`, the training backbone), Video Swin-T (torchvision, Kinetics-400), DINOv2 (timm via `anyup/backbone/vit_wrapper.py`).

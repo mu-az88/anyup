@@ -315,3 +315,14 @@ Entry format:
 - **Where:** `anyup/data/training/monitor.py`, `tests/test_train_monitor.py`, `scripts/debug/teacher_debug_cells.py` (header), `docs/plan/P1_training_pipeline/T04_training_shared_image_encoding.md` (step 4), `T05_training_train_monitor.md` (log).
 - **Affects:** Overrides D-024's "kept so later runs (e.g. T04_training) are measured the same way": T04 now measures through the monitor, comparable to D-021 within 0.04 GiB. Completes D-025 (monitor replaces the debug cells) and confirms D-027's per-step NaN check. S15 (GradScaler) stays open: 0 skips in 300 steps, too short to settle it.
 - **Follow-up (2026-11-17, `main`):** `feat/train-monitor` merged into `main` (`547977c`, pushed). After the merge: notebook cell 2 `REPO_BRANCH` set back to `"main"`; `plan.md` stale "not merged yet" notes corrected (teacher fix → merged in D-026; T05 → merged).
+
+## D-029 — Merged branches deleted; `project_context.md` repo branch corrected
+- **Date:** 2026-11-17
+- **Branch:** `main`
+- **Decision:** At Muaaz's request, after the T05_training merge (`547977c`, `c168576`):
+  - **Deleted, local + GitHub:** `feat/train-monitor` (`d1e8b7b`), `fix/teacher-full-16frame-clips` (`a0c3ac6`), `Person-b` (`0a60d95`), `modelpy` (`b78cfde`). **Local only:** `chaniging-anyup` (`bee184c`), `modify-architecture` (`669f0c4`), and the local copies of Munther's `3Dconv` (`6eff213`) and `person-bb` (`07f4df5`). Every one was an ancestor of `main` (safe `git branch -d`; nothing lost). Tip hashes kept here so any branch can be recreated.
+  - **Kept on GitHub (Munther's):** `experiments-task02` and `experiments-backbone-loader`, because his notebooks on `main` clone them by name (`experiments/exp0–exp3*.ipynb`, `tests/T02–T04_*_check.ipynb` → `experiments-task02`; `tests/T01_backbone_loader_check.ipynb` → `experiments-backbone-loader`). Deleting them would break those notebooks in Colab. `3Dconv`, `monzir`, `person-bb` are unused but his to delete.
+  - Kept: the local stash `stash@{0}` (2026-04-02, WIP on `3Dconv`, one line in `tests/test_rope3d.py`, not on `main`).
+  - **`docs/context/project_context.md`:** repo branch `3Dconv` → base branch `main`; notes that task notebooks clone their own branch via `REPO_BRANCH` and that the P1 experiment notebooks still clone `experiments-task02`.
+- **Where:** git refs (local + `origin`); `docs/context/project_context.md` (Environment).
+- **Affects:** Follows D-008 (`main` is the base) and D-026 (`3Dconv` merged). Corrects the stale `3Dconv` line in Munther's always-loaded context. If Munther switches his notebooks' `REPO_BRANCH` to `main`, `experiments-task02` and `experiments-backbone-loader` can be deleted too.
