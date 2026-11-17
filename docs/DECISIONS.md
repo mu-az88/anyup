@@ -293,3 +293,24 @@ Entry format:
   - `main` now holds Munther's P1 work and the teacher fix (D-006), so new branches start from `main` (T01–T05_training).
   - `main` is **not pushed yet** at the time of writing.
   - Munther should know that `main` is now the base. `3Dconv` stays as it is on GitHub.
+
+## D-027 — OOM-risk warning rule in `CLAUDE.md`; T05_training design approved
+- **Date:** 2026-11-16
+- **Branch:** main (working tree; `feat/train-monitor` to be created by Muaaz)
+- **Decision:** At Muaaz's request:
+  - **`CLAUDE.md` Coding Rules, new rule "Warn before OOM risk":** before anything that could measurably add GPU memory, the assistant states the estimated cost, the headroom it uses and the OOM likelihood, and waits for an OK. Not for things with no measurable GPU-memory cost.
+  - **T05_training task file approved** (Q1–Q11): one `TrainMonitor` in `anyup/data/training/monitor.py`; on by default; per-step NaN check (falls back to logging points if overhead ≥ 1 %) plus a check before every checkpoint save; out-of-memory context message; grad norm, GradScaler scale and skipped-step count logged; PNG dashboard + `monitor_history.csv` on Drive (`cfg.log_dir`), reloaded on resume.
+  - **S15 logged:** bf16 autocast with an unneeded `GradScaler`, which silently skips steps with inf/NaN gradients. Not changed in T05.
+- **Where:** `CLAUDE.md`, `docs/plan/P1_training_pipeline/T05_training_train_monitor.md`, `plan.md` Task Index, `docs/skipped_and_future_concerns.md` (S15).
+- **Affects:** Extends D-025 (debugging rules) and D-010 (`CLAUDE.md` edits). Munther's sessions read the same rule. T05_training's Colab run (step 4) falls under the new rule: it must stay in the T ≤ 4 stages (T=8 OOMs on a T4, S14).
+
+## D-028 — T05_training monitor tested on a T4; time-left fix; old debug cells superseded
+- **Date:** 2026-11-17
+- **Branch:** `feat/train-monitor` (`423f61f` pushed; the fix and docs below are on top, not committed yet)
+- **Decision:**
+  - **Monitor run 1 accepted** (Tesla T4, code `423f61f`, 300 steps, T=2 → T=4 at step 150, one validation at step 200): monitor overhead 0.013 % of step time (target < 1 %), so the per-step NaN check stays on (no fallback to logging points). T=2 0.33 it/s, 9.91 / 10.10 GiB; T=4 0.40 it/s, 9.98 / 10.20 GiB; validation 459 clips in 6.4 min; 0 GradScaler skips. Same memory and validation time as D-021 / D-023 (+0.04 GiB at most); steps 3–5 % slower, not from the monitor (its own time 0.11 s in total), cause not separated. Dashboards, `monitor_history.csv` and the 10 TensorBoard tags checked; the tags equal the CSV.
+  - **Q7 measured by self-timing within one run**, not two runs on vs off (run-to-run noise > 1 %).
+  - **Time-left fix (option a):** before the first validation, the estimate printed "validation 0 h 00 min". It now prints "validation not timed yet" and marks the total "≥". One new test; 18 pass.
+  - **Old paste-in debug cells superseded:** new debug runs (T04_training first) use the monitor. `scripts/debug/teacher_debug_cells.py` stays only as the historical method behind D-021 / D-023 (header says so).
+- **Where:** `anyup/data/training/monitor.py`, `tests/test_train_monitor.py`, `scripts/debug/teacher_debug_cells.py` (header), `docs/plan/P1_training_pipeline/T04_training_shared_image_encoding.md` (step 4), `T05_training_train_monitor.md` (log).
+- **Affects:** Overrides D-024's "kept so later runs (e.g. T04_training) are measured the same way": T04 now measures through the monitor, comparable to D-021 within 0.04 GiB. Completes D-025 (monitor replaces the debug cells) and confirms D-027's per-step NaN check. S15 (GradScaler) stays open: 0 skips in 300 steps, too short to settle it.

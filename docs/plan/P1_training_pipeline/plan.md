@@ -23,4 +23,4 @@ Task IDs run across all of Muaaz's plans (`P2_training` continues from the last 
 | T02_training | Pass `window_t` from the config to the model (S13) | — | Q&A (Q1–Q3 answered; Q2 part done early) | `T02_training_window_t_passthrough.md` |
 | T03_training | Retire `train_3d.py`; `Train_3D_full.ipynb` is the training entry point | — | Q&A (all answered) | `T03_training_retire_train_3d_script.md` |
 | T04_training | Compute the image half once per training step, so T=8 fits on a T4 (S14) | — | Q&A | `T04_training_shared_image_encoding.md` |
-| T05_training | Training monitor module: speed, memory, validation time, NaN and out-of-memory checks in every run (before T04) | — | Q&A | `T05_training_train_monitor.md` |
+| T05_training | Training monitor module: speed, memory, validation time, NaN and out-of-memory checks in every run (before T04) | — | done (D-028; not merged yet) | `T05_training_train_monitor.md` |

@@ -5,9 +5,10 @@
 # Paste "Cell 12.5" after cell 12 and "Cell 13.5" after cell 13, run cells 1-12, 12.5, 13, 13.5,
 # then restart the runtime. Never save the notebook with these cells (D-024).
 #
-# This is the exact measurement used for D-021 / D-023 (teacher fix, Tesla T4), kept so later runs
-# (e.g. T04_training's before/after) are measured the same way. A proper, pluggable training monitor
-# that replaces these cells is proposed separately.
+# SUPERSEDED (T05_training, D-028): for new debug runs, use the training monitor
+# (`anyup/data/training/monitor.py`, `TrainMonitor`, on by default in Train_3D_full.ipynb cell 13).
+# Its T4 run 1 reproduced this script's D-021 / D-023 numbers (memory within 0.04 GiB, validation 6.4 min).
+# This file is kept only as the historical method behind D-021 / D-023 (teacher fix, Tesla T4).
 #
 # Settings below = the D-023 rerun: 5 steps per stage (T=2/4/8), validation after step 9 (end of T=4).
 
