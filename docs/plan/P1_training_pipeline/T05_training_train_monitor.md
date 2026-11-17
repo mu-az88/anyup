@@ -5,7 +5,7 @@
 | Task ID | T05_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
 | Branch | `feat/train-monitor`, branched from `main` (`f05ea4d`, teacher fix merged; D-008) |
-| Status | in progress |
+| Status | done |
 | Depends on | — |
 | Blocks | T04_training (its before/after memory numbers are measured through the monitor) |
 
@@ -190,3 +190,45 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - The test block also recomputes `checkpoint_dir` / `log_dir`: they are built from `experiment_name` earlier in the cell, so changing only the name would have written the test into `run_03`'s folders.
   - Notebook diff now **+46 / −3** (cells 2, 3, 13). All code cells parse; outputs empty. Executing cell 3 with the block uncommented gives `experiment_name=t05_monitor_on`, `max_steps=300`, `val_every_n_steps=200`, schedule `[(2, 0, 2), (4, 150, 1), (8, 10000, 1)]`, `log_dir=…/runs/t05_monitor_on`, `checkpoint_dir=…/checkpoints/t05_monitor_on`.
   - In the test run: stage switch at step 150, validation after step 199 (T=4 stage), checkpoint after step 249, `finish` at 300.
+- **2026-11-17: committed and pushed.** `feat/train-monitor` created from `main` (`f05ea4d`), commit `423f61f` (8 files, +1011 / −40), pushed to `origin/feat/train-monitor`.
+- **Step 4, Colab run 1 (Tesla T4 14.6 GiB, PyTorch 2.14.1+cu130, code commit `423f61f`, test block in cell 3): 300/300 steps in 20:18, no NaN stop, no OOM.**
+
+  | | this run (monitor, 150 steps per stage) | D-021 / D-023 (5 steps per stage) |
+  |---|---|---|
+  | T=2 bs 2 median | 3.011 s/step (0.33 it/s), first 5.7 s | 2.87 / 2.93 s (0.35 / 0.34 it/s), first 6.0 s |
+  | T=2 peak alloc / reserved | 9.91 / 10.10 GiB (69 %) | 9.91 / 10.06 GiB |
+  | T=4 bs 1 median | 2.529 s/step (0.40 it/s), first 2.7 s | 2.45 / 2.44 s (0.41 it/s), first 3.0 s |
+  | T=4 peak alloc / reserved | 9.98 / 10.20 GiB (70 %) | 9.94 / 10.16 GiB |
+  | Validation | 459 clips in 6.4 min, peak reserved 10.16 GiB | ≈ 6.4 min (0.83 s/clip × 459) |
+
+  - **Overhead: 0.11 s = 0.013 % of 13.9 min step time** (target < 1 %; 0.014 % at the validation). Dashboard draws: 3 in 3.7 s (0.9–1.8 s each), not counted. So Q6's per-step NaN check stays on (no fallback needed).
+  - Skipped steps (GradScaler, S15): 0 in both stages.
+  - Checkpoints at step 250 and 300 (final); dashboards `dashboard_T2_end.png`, `dashboard.png`, `dashboard_final.png` written to `runs/t05_monitor_on/`.
+  - Both stages are 3–5 % slower than D-021/D-023. Not from the monitor (its own time is 0.08–0.11 s in total). The cause is not separated: a different Colab VM, and a median over 150 steps instead of 5. The T=4 peak is +0.04 GiB higher than in D-021, likewise not separated (more steps sampled for the peak, and a validation inside the stage).
+  - **Found: time-left estimate shows "validation 0 h 00 min" before the first validation** (`time_left`, `monitor.py:398`: `_last_val_s is None` → `val_s = 0`). At step 150, one 6.4 min validation remained. In run_03 the estimate would leave out ≈ 5.3 h of validation until the first one. Display only. Also minor: "lower bound" printed because the T=8 stage at 10,000 is in the schedule, though it lies after `max_steps=300` (correct in a real run).
+  - Not yet checked: the dashboard PNG contents, `monitor_history.csv` on Drive, the TensorBoard tags.
+- **Run 1 outputs from Drive checked (2026-11-17; Muaaz copied them locally).**
+  - `monitor_history.csv`: 7 rows (train at 0, 50, 100, 150, 200, 250; val at 200), all 22 columns filled. Matches the printed lines: val 459 clips in 6.37 min, `val_rec` 0.1035, val peak reserved 10.16 GiB; `grad_scale` 65536 throughout, `skipped_steps` 0; grad norm 0.016–0.090 (clip 1.0).
+  - `dashboard_T2_end.png` (title "step 100") and `dashboard_final.png` (title "step 250", stage switch marked at 150): all 6 panels drawn (losses on a log axis, val loss, grad norm + clip line, lr, s/step, GPU memory + 14.6 GiB line). `dashboard.png` = `dashboard_final.png` (same size, 107,823 B), as designed.
+  - Observations, no change made: the last history row is step 250, since logging runs at multiples of 50 and the loop ends at 299, so steps 251–299 aren't in the dashboard (only in the printed stage summary). `loss_temporal` is 0.0 at T=2, so the log-axis line starts at step 150. That comes from the training code, not the monitor. The empty val panel before the first validation shows a ±0.04 placeholder axis (cosmetic).
+  - TensorBoard tags: checked in the next entry.
+- **Run 1 TensorBoard file checked (2026-11-17):** one file, `events.out.tfevents.1794899319.c47065976d03.457.0` (5.5 KB), read with the local `tensorboard` 2.20.0 `EventAccumulator`.
+  - **All 10 monitor tags are present:** `perf/s_per_step`, `perf/it_per_s`, `memory/peak_alloc_gib`, `memory/peak_reserved_gib`, `memory/peak_reserved_pct`, `train/grad_norm`, `train/grad_scale`, `train/skipped_steps` (6 points each, steps 0–250), and `val/time_min`, `memory/val_peak_reserved_gib` (1 point, step 200).
+  - Values = `monitor_history.csv` at the same steps for every tag: max relative difference 4.8e-8 (float32 storage in tfevents).
+  - The notebook's own tags are still written: `loss/{total,rec,inp,aug,temporal,val_rec}`, `lr`, `curriculum/T`, `curriculum/bs`, `data/epoch`. No non-scalar data.
+  - Muaaz's `%tensorboard` view in Colab showed "No dashboards are active". The file has data, so it's a viewer issue (most likely Drive not mounted in that Colab session), not a monitor issue. Not followed up.
+- **Step 5 (docs), 2026-11-17.** Docs that pointed to `scripts/debug/teacher_debug_cells.py` as the method to use now point to the monitor:
+  - `scripts/debug/teacher_debug_cells.py` header: "SUPERSEDED (T05_training, D-028)". The file is kept as the historical method behind D-021 / D-023. No code changed.
+  - `T04_training_shared_image_encoding.md` step 4: the monitor only, the fallback to the old cells removed. Added that run 1 reproduced D-021's memory within 0.04 GiB, so T04's before/after stays comparable to D-021.
+  - Left as they are: the historical mentions in D-024 / D-025; `CLAUDE.md` and `docs/working rules/notebooks_version_control.md` already point to the monitor.
+  - `docs/DECISIONS.md`: **D-028** (run 1 accepted, time-left fix, old cells superseded; overrides D-024's "same method for T04").
+- **Fix (a) for the time-left bug (Muaaz chose (a), 2026-11-17).** `time_left` returns `val_s = None` while validations remain but none has been timed yet. `time_left_text` then prints "validation not timed yet" and marks the total "≥". When no validation is left in the run, `val_s` is 0.0 as before. The cosmetic "lower bound" from a stage beyond `max_steps` is left unchanged (option (b) not chosen).
+  - Run 1's step-150 line now reads (replayed on CPU with fake timings): `time left ≥ 0 h 07 min (training 0 h 07 min, validation not timed yet; lower bound: later stages timed at the current speed)`.
+  - Files: `anyup/data/training/monitor.py` (`time_left`, `time_left_text`), `tests/test_train_monitor.py` (+ `test_time_left_before_first_validation`). **18 passed, 9.8 s** (local CPU venv). The first run of the new test failed: it passed a tuple instead of a `Stage` (a test bug, fixed).
+  - CPU-only text change, so no second Colab run is needed (agreed in the option list).
+- **Close-out (2026-11-17).** Muaaz chose (a): the 3–5 % slower steps count as a match within Colab VM noise. Memory and validation time match D-021 / D-023; the monitor's own time is 0.11 s, so it isn't the cause. Not logged as a skipped item. All Done When items are met:
+  - tests: 18 pass (local CPU); the notebook calls the monitor at the agreed points; outputs empty;
+  - overhead 0.013 % (< 1 %); memory and validation time = D-021 / D-023, speed as above;
+  - dashboards + `monitor_history.csv` on Drive, showing losses, grad norm, lr, speed and memory; TensorBoard tags = CSV;
+  - D-028; this log and the Task Index updated.
+  - Status in progress → **done**. Left for Muaaz: commit and push the fix + docs (on top of `423f61f`), merge `feat/train-monitor` into `main`, then set `REPO_BRANCH` in cell 2 back to `"main"`. Not verified: TensorBoard in the Colab UI (it showed no dashboards, see above); the 3–5 % speed gap's cause.

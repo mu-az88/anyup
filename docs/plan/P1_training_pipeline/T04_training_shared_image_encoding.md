@@ -86,7 +86,7 @@ pred_aug   = anyup.decode(encoded, gt_aug_low)                                  
 1. `tests/test_shared_image_encoding.py` against the **current** `forward` first (record the reference outputs/gradients), then the `model.py` change; run locally.
 2. Cell 13 change; clear outputs. Local CPU dry run of one step with a tiny teacher, like D-006's.
 3. Run Munther's and the existing model tests: `test_upsamplers.py`, `test_weight_loading.py`, `test_teacher_16frame.py`, `test_losses.py`.
-4. Colab T4 debug run through the T05_training monitor (or `scripts/debug/teacher_debug_cells.py` if T05 isn't done). Peak memory at T=2/4/8 vs D-021; finite losses at all three.
+4. Colab T4 debug run through the T05_training monitor (`TrainMonitor`, D-028; the old `scripts/debug/teacher_debug_cells.py` is superseded). Peak memory at T=2/4/8 vs D-021 (the monitor's T4 run 1 reproduced D-021's T=2/4 memory within 0.04 GiB, so the two are comparable); finite losses at all three.
 
 ## Tests / Regression Checks
 

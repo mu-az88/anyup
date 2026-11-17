@@ -379,14 +379,17 @@ class TrainMonitor:
         if est is None:
             return "time left: n/a"
         train_s, val_s, lower = est
-        ge = "≥ " if lower else "≈ "
-        return (f"time left {ge}{_fmt_time(train_s + val_s)} (training {_fmt_time(train_s)}, "
-                f"validation {_fmt_time(val_s)}"
+        ge = "≥ " if (lower or val_s is None) else "≈ "
+        val_txt = "not timed yet" if val_s is None else _fmt_time(val_s)
+        return (f"time left {ge}{_fmt_time(train_s + (val_s or 0.0))} (training {_fmt_time(train_s)}, "
+                f"validation {val_txt}"
                 f"{'; lower bound: later stages timed at the current speed' if lower else ''})")
 
     def time_left(self, step):
         """(train seconds, val seconds, is_lower_bound) or None. Stages not yet run use the current
-        stage's speed, so the estimate is a lower bound while larger-T stages remain."""
+        stage's speed, so the estimate is a lower bound while larger-T stages remain.
+        val seconds is None while validations remain but none has been timed yet (the total printed
+        by time_left_text then leaves validation out and is marked ≥)."""
         if not (self.enabled and self.total_steps and self.stage):
             return None
         med = self.stage.median_s()
@@ -394,10 +397,13 @@ class TrainMonitor:
             return None
         remaining = max(0, self.total_steps - step)
         lower = any(s.start_step > step for s in self.schedule)
-        val_s = 0.0
-        if self.val_every and self._last_val_s is not None:
-            n_val = self.total_steps // self.val_every - step // self.val_every
-            val_s = max(0, n_val) * self._last_val_s
+        n_val = 0
+        if self.val_every:
+            n_val = max(0, self.total_steps // self.val_every - step // self.val_every)
+        if n_val and self._last_val_s is None:
+            val_s = None                                                  # validations ahead, none timed yet
+        else:
+            val_s = n_val * (self._last_val_s or 0.0)
         return remaining * med, val_s, lower
 
     def finish(self, step):

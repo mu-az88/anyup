@@ -240,6 +240,22 @@ def test_time_left_lower_bound():
     assert "lower bound" in mon.time_left_text(4)
 
 
+def test_time_left_before_first_validation():
+    """Run 1 bug: before any validation was timed, the estimate printed 'validation 0 h 00 min'."""
+    mon, clock, *_ = make(schedule=[Stage(2, 0, 2)])                   # one stage → no stage lower bound
+    run_steps(mon, clock, range(0, 4), 2, 2, dt=2.0)
+    train_s, val_s, lower = mon.time_left(3)
+    assert train_s == (200 - 3) * 2.0 and val_s is None and lower is False
+    text = mon.time_left_text(3)
+    assert "validation not timed yet" in text and text.startswith("time left ≥ ")
+    mon.val_start(); clock.t += 30; mon.val_end(4, 3)
+    train_s, val_s, lower = mon.time_left(4)
+    assert val_s == (200 // 4 - 4 // 4) * 30 and "time left ≈ " in mon.time_left_text(4)
+    mon2, clock2, *_ = make(schedule=[Stage(2, 0, 2)], val_every=None)  # no validation in the run
+    run_steps(mon2, clock2, range(0, 4), 2, 2, dt=2.0)
+    assert mon2.time_left(3)[1] == 0.0 and "time left ≈ " in mon2.time_left_text(3)
+
+
 class FakeShell:
     def __init__(self):
         self.exc, self.handler, self.shown = None, None, []
