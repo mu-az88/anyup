@@ -22,6 +22,7 @@ I'm Monzir Hafez, an Electrical & Electronic Engineering (Software) student. My 
 - Code must run on Google Colab (T4 / A100), with checkpoints on Google Drive.
 - **Debugging is a habit.** Whenever useful debugging code can be added (checks, measurements, clear error messages that say where and why something failed), add it, so every problem is easy to isolate and detect. Only add checks that cost no GPU memory and little time, and measure the overhead.
 - **Checks live in modules, not pasted cells.** Debugging and monitoring for a training or experiment change go into an importable module with a test (training: the monitor in `anyup/data/training/monitor.py`, T05_training). The notebook only switches it on and calls it. Never leave temporary debug cells in a saved notebook.
+- **Warn before OOM risk.** Before implementing any action, change, test or run that could measurably add GPU memory (batch size, frames / T, resolution, chunk sizes, `q_chunk_size`, extra forward passes, tensors kept alive, a debug run reaching a heavier stage), tell me first and wait for my OK. Show the estimated cost (with how it was estimated), the headroom it uses, and how likely it is to cause a CUDA OOM (low / medium / high, and why). Skip this for things with no measurable GPU-memory cost (CPU-side logging, counters, docs).
 
 ## Working Style: Careful, Ask First
 

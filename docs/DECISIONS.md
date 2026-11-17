@@ -293,3 +293,13 @@ Entry format:
   - `main` now holds Munther's P1 work and the teacher fix (D-006), so new branches start from `main` (T01–T05_training).
   - `main` is **not pushed yet** at the time of writing.
   - Munther should know that `main` is now the base. `3Dconv` stays as it is on GitHub.
+
+## D-027 — OOM-risk warning rule in `CLAUDE.md`; T05_training design approved
+- **Date:** 2026-11-16
+- **Branch:** main (working tree; `feat/train-monitor` to be created by Muaaz)
+- **Decision:** At Muaaz's request:
+  - **`CLAUDE.md` Coding Rules, new rule "Warn before OOM risk":** before anything that could measurably add GPU memory, the assistant states the estimated cost, the headroom it uses and the OOM likelihood, and waits for an OK. Not for things with no measurable GPU-memory cost.
+  - **T05_training task file approved** (Q1–Q11): one `TrainMonitor` in `anyup/data/training/monitor.py`; on by default; per-step NaN check (falls back to logging points if overhead ≥ 1 %) plus a check before every checkpoint save; out-of-memory context message; grad norm, GradScaler scale and skipped-step count logged; PNG dashboard + `monitor_history.csv` on Drive (`cfg.log_dir`), reloaded on resume.
+  - **S15 logged:** bf16 autocast with an unneeded `GradScaler`, which silently skips steps with inf/NaN gradients. Not changed in T05.
+- **Where:** `CLAUDE.md`, `docs/plan/P1_training_pipeline/T05_training_train_monitor.md`, `plan.md` Task Index, `docs/skipped_and_future_concerns.md` (S15).
+- **Affects:** Extends D-025 (debugging rules) and D-010 (`CLAUDE.md` edits). Munther's sessions read the same rule. T05_training's Colab run (step 4) falls under the new rule: it must stay in the T ≤ 4 stages (T=8 OOMs on a T4, S14).
