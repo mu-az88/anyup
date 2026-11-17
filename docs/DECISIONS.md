@@ -326,3 +326,15 @@ Entry format:
   - **`docs/context/project_context.md`:** repo branch `3Dconv` → base branch `main`; notes that task notebooks clone their own branch via `REPO_BRANCH` and that the P1 experiment notebooks still clone `experiments-task02`.
 - **Where:** git refs (local + `origin`); `docs/context/project_context.md` (Environment).
 - **Affects:** Follows D-008 (`main` is the base) and D-026 (`3Dconv` merged). Corrects the stale `3Dconv` line in Munther's always-loaded context. If Munther switches his notebooks' `REPO_BRANCH` to `main`, `experiments-task02` and `experiments-backbone-loader` can be deleted too.
+
+## D-030 — T04_training: AnyUp image half computed once per training step
+- **Date:** 2026-11-17
+- **Branch:** fix/shared-image-encoding (from `main` `9e43ba2`; not yet committed)
+- **Decision:** At Muaaz's request (T04_training Q1–Q5, Step 2 answers):
+  - **`anyup/model.py`:** `AnyUp.upsample()` removed; `forward` is now `decode(encode_image(image, features.shape, output_size), features, …)`, same signature and bit-equal outputs (pytest, T_tok 1/2/4, batch 2, `q_chunk_size`, `vis_attn`). `decode` raises a `ValueError` when the features' grid differs from the encoded one. No weights, layers or checkpoint keys change.
+  - **`Train_3D_full.ipynb` cell 13:** the main and self-consistency passes share one `encode_image` result (shape `assert` before the second `decode`). Validation keeps `forward`.
+  - **Q4 amended:** the gradient tolerance (rtol 1e-5, atol 1e-7) is checked in fp32. Under the notebook's bf16 autocast, losses are bit-equal but image-half gradients differ by one bf16 rounding of the summed gradient (≤ 1.0e-2 per-tensor relative L2, CPU dry run); accepted.
+  - **S17 logged:** CPU bf16-autocast `grad_norm` ≈ 1000× the fp32 value (157–609 vs 0.15–0.24), old and new code alike; check on the GPU.
+  - **Step 4 setup:** `REPO_BRANCH = "fix/shared-image-encoding"` in cell 2 until the merge, and a commented T04 debug-run block in cell 3 (90 steps, T=2/4/8 at steps 0/30/60, validation off), as T05 did.
+- **Where:** `anyup/model.py`, new `tests/test_shared_image_encoding.py`, `Train_3D_full.ipynb` cells 2 / 3 / 13, `docs/plan/P1_training_pipeline/T04_training_shared_image_encoding.md`, `plan.md` Task Index, `docs/skipped_and_future_concerns.md` (S16, S17).
+- **Affects:** Implements D-022's plan for S14. Munther's Exp 0–3 call `forward` through `anyup/upsamplers.py`, unchanged in output (`test_upsamplers.py` 34 passed); he is told after the merge (Q2). `REPO_BRANCH` departs from D-028's `main` until T04 merges, then goes back. A run that trains with this code instead of the old one gives bf16-rounding-level different weights; run_03 has not started, so no existing checkpoint is affected.
