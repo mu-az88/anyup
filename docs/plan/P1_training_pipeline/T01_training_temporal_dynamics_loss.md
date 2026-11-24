@@ -5,7 +5,7 @@
 | Task ID | T01_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
 | Branch | `fix/temporal-dynamics-loss`, from `main` `ee17ef0` after the T04_training merge (Q6; the teacher fix is merged, D-026; base `main` since D-008) |
-| Status | done (D-032) |
+| Status | done (D-032); merged into `main` (`f8136d6`) |
 | Depends on | Teacher 16-frame fix (`teacher_16frame_plan.md` in this folder, D-006; merged, D-026): `gt_feats` / `T_tok` come from its window slicing. T04_training (merged first, Q6): also edits cell 13. T05_training monitor (D-028): used by the debug run |
 | Blocks | — |
 
@@ -221,3 +221,5 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - `REPO_BRANCH` in cell 2 back to `"main"` (main's original line) **before the merge, on this branch**, as T04 did, so `main` needs no follow-up commit. The T01 block in cell 3 stays commented, like the T04 and T05 blocks.
   - Left: the merge into `main` (Muaaz's call); Step 6 after the merge (a run to step ≈ 10000, then λ from `loss/temp_over_rec`; the debug run's 0.36–0.76 is above the 0.1–0.3 target, so expect a lower λ, but decide on the real run).
   - Not verified: the Step 6 behaviour (whether the loss actually improves temporal consistency) can only show on a long run; the debug run only shows the loss is wired correctly, finite and cheap.
+- **2026-11-24: Step 6 deferred, not skipped** (Muaaz: "I don't want you to skip it, I just want to do it later"). Not started now; it stays the next T01 step after the merge.
+- **2026-11-24: merged into `main`** (`f8136d6`, merge commit, `--no-ff`) at Muaaz's request. Checked on the merged `main`: `REPO_BRANCH = "main"`; `test_temporal_dynamics_loss.py` + `test_losses.py` + `test_shared_image_encoding.py` + `test_train_monitor.py` 59 passed (local CPU, 11.6 s). Still to do: Step 6 (deferred, later). Until then λ = 0.2, untuned for this loss (debug-run ratio 0.36–0.76 vs target 0.1–0.3).
