@@ -5,7 +5,7 @@
 | Task ID | T04_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
 | Branch | `fix/shared-image-encoding`, branched from `main` (`9e43ba2`: teacher fix D-026 and T05 monitor D-028 merged) |
-| Status | done (D-031; not merged yet) |
+| Status | done (D-031); merged into `main` (`726dd0c`) |
 | Depends on | Teacher 16-frame fix (merged, D-026): its T=8 debug check moved here (D-022, S14). T05_training monitor (merged, D-028), used to measure before/after |
 | Blocks | run_03 on a T4 reaching the T=8 stage (`start_step=15000`) |
 
@@ -177,3 +177,4 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - **Step 5, message to Munther (drafted for Muaaz, to send after the merge):**
     > Heads-up on `anyup/model.py` (T04_training, now in `main`): `AnyUp.forward` now runs through two new methods, `encode_image(image, feats_shape, output_size)` (image half) and `decode(encoded, feats, vis_attn, q_chunk_size)` (feature half). `upsample()` was removed; its only caller was `forward`. The call `model(guide, features, output_size=..., q_chunk_size=...)` is unchanged, and the outputs are bit-identical to the old code (`torch.equal`, `tests/test_shared_image_encoding.py`). No weights, layers or checkpoint keys changed. Your `test_upsamplers.py` (34) and `test_weight_loading.py` (7) pass, so Exp 0–3 need no change. Only code that called `.upsample(` directly would break. Why: training now reuses the image half for the self-consistency pass, so the T=8 stage fits on a T4 (10.3 GiB peak, was OOM).
   - `REPO_BRANCH` in cell 2 back to `"main"` (main's original line, `9e43ba2`) **before the merge, on this branch** (Muaaz, 2026-11-24; old plan: after the merge, D-030), so the merge brings it in and `main` needs no follow-up commit. The T04 block in cell 3 stays commented, as T05's does. Left for after the merge: the message to Munther.
+- **2026-11-24: merged into `main`** (`726dd0c`, merge commit, pushed) at Muaaz's request. Checked on the merged `main` before pushing: `REPO_BRANCH = "main"`, `NOVEMBER_2026_PROGRESS.md` ignored, `test_shared_image_encoding.py` + `test_train_monitor.py` 31 passed (local CPU, 28.6 s). Still to do: Muaaz sends the Step 5 message to Munther.
