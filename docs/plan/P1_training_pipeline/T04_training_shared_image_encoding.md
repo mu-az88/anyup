@@ -5,7 +5,7 @@
 | Task ID | T04_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
 | Branch | `fix/shared-image-encoding`, branched from `main` (`9e43ba2`: teacher fix D-026 and T05 monitor D-028 merged) |
-| Status | in progress |
+| Status | done (D-031; not merged yet) |
 | Depends on | Teacher 16-frame fix (merged, D-026): its T=8 debug check moved here (D-022, S14). T05_training monitor (merged, D-028), used to measure before/after |
 | Blocks | run_03 on a T4 reaching the T=8 stage (`start_step=15000`) |
 
@@ -157,3 +157,22 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - Estimate (reserved): **T=2/4: 10.1 → ≈ 7.0 GiB** (−3.1 GiB, one image half fewer). **T=8: old ≈ 3.8 + 2 × 6.24 ≈ 16.3 GiB** (fits the OOM), **new ≈ 10.1–13.4 GiB**. "Base" (teacher, weights, optimizer, allocator cache, backward working set) is 10.1 − 2 × 3.15 ≈ 3.8 GiB at T=4. The low end assumes it doesn't grow with T; the high end assumes its backward working set (≤ 3.3 GiB at T=4) doubles at T=8. Not measured; Step 4 measures it.
   - OOM likelihood at T=8: **medium** (high end at the Q5 margin of 13.5 GiB, below the T4's 14.6 GiB). T=2/4: low (less than the 10.1 GiB already run).
 - **2026-11-17: Step 4 run settings approved by Muaaz** ("OK as proposed", with the estimate above) and **set up as T05 did** ("same as T05"). Cell 2: `REPO_BRANCH = "fix/shared-image-encoding"` (back to `"main"` after the merge). Cell 3: a commented "T04_training debug run" block after the T05 block: `experiment_name = "t04_shared_enc"` (+ its `checkpoint_dir` / `log_dir`), `max_steps = 90`, `val_every_n_steps = 10_000` (no validation), schedule T=2 batch 2 from step 0, T=4 batch 1 from 30, T=8 batch 1 from 60. Notebook +22 / −3 lines in total with Step 2; valid JSON, cells compile, and the block compiles when uncommented. `docs/DECISIONS.md` **D-030** added. Waiting for the commit + push and the Colab run.
+- **2026-11-24: Step 4 done. Colab Tesla T4 (14.6 GiB), code `293d667`, PyTorch 2.14.1+cu130.** The T04 block in cell 3 was uncommented for the run (not saved). 90 steps in 3 min 38 s, **no OOM**. Monitor stage summaries vs D-021 (the "before"):
+
+  | stage | steps | median s/step (it/s) | first step | peak alloc / reserved | D-021: reserved, it/s |
+  |---|---|---|---|---|---|
+  | T=2, bs 2 | 0–29 | 2.267 (0.44) | 5.8 s | 5.70 / **5.79 GiB** (40 %) | 10.06 GiB, 0.35 |
+  | T=4, bs 1 | 30–59 | 1.882 (0.53) | 2.1 s | 5.40 / **5.79 GiB** (40 %) | 10.16 GiB, 0.41 |
+  | T=8, bs 1 | 60–89 | 2.851 (0.35) | 2.8 s | 10.05 / **10.26 GiB** (70 %) | OOM on its first step (14.28 GiB allocated) |
+
+  - **Q5 margin met:** 10.26 ≤ 13.5 GiB at T=8 (3.2 GiB below the margin, 4.3 GiB below the T4's 14.6). T=2/4 peak reserved −4.27 / −4.37 GiB vs D-021, so "no higher" holds.
+  - Vs the Step 4 estimate: T=2/4 came in 1.2 GiB below it (≈ 7.0 estimated), T=8 0.2 GiB above its low end (10.1–13.4). The estimate came from CPU autograd byte counts; the cause of the difference was not separated.
+  - Speed vs D-021: T=2 ×1.27, T=4 ×1.30 (vs D-028's monitor run, 0.33 / 0.40 it/s: ×1.33 each). The image half now runs once per step.
+  - **Losses finite at every step of all three stages**, shown by the monitor's per-step check (`monitor_nan_every_step = True`) and its check before the final save: a NaN/inf would have stopped the run with `NonFiniteLossError`. Loss values are written only at logging points (`log_every_n_steps = 50`, not changed in the T04 block), so `runs/t04_shared_enc/monitor_history.csv` has rows for step 0 (T=2) and step 50 (T=4) only, none at T=8; the progress bar's final `loss=0.1043, T=4` is from step 50. **Muaaz chose not to re-run with a shorter logging interval** (Done When asks for finite losses, not values).
+  - 0 skipped steps (GradScaler); monitor overhead 0.05 s = 0.021 % of step time. Debug checkpoint `checkpoints/t04_shared_enc/anyup3d_step90_final.pth` (90 steps, not for use).
+  - Not measured: validation (off in this run, as approved).
+  - **S14 checked:** the teacher fix trains at T=8 on a T4 (finite losses, 10.26 GiB). Q3 (next memory measure) is not needed.
+- **2026-11-24: Close-out.** All Done When items met: tests (Step 3, 121 passed); T4 run (Step 4); S14 → `checked`; `docs/DECISIONS.md` **D-031**, and D-030's stale "not yet committed" Branch line corrected (→ `293d667`, pushed); Task Index → done. Status → done (not merged yet).
+  - **Step 5, message to Munther (drafted for Muaaz, to send after the merge):**
+    > Heads-up on `anyup/model.py` (T04_training, now in `main`): `AnyUp.forward` now runs through two new methods, `encode_image(image, feats_shape, output_size)` (image half) and `decode(encoded, feats, vis_attn, q_chunk_size)` (feature half). `upsample()` was removed; its only caller was `forward`. The call `model(guide, features, output_size=..., q_chunk_size=...)` is unchanged, and the outputs are bit-identical to the old code (`torch.equal`, `tests/test_shared_image_encoding.py`). No weights, layers or checkpoint keys changed. Your `test_upsamplers.py` (34) and `test_weight_loading.py` (7) pass, so Exp 0–3 need no change. Only code that called `.upsample(` directly would break. Why: training now reuses the image half for the self-consistency pass, so the T=8 stage fits on a T4 (10.3 GiB peak, was OOM).
+  - `REPO_BRANCH` in cell 2 back to `"main"` (main's original line, `9e43ba2`) **before the merge, on this branch** (Muaaz, 2026-11-24; old plan: after the merge, D-030), so the merge brings it in and `main` needs no follow-up commit. The T04 block in cell 3 stays commented, as T05's does. Left for after the merge: the message to Munther.
