@@ -326,3 +326,27 @@ Entry format:
   - **`docs/context/project_context.md`:** repo branch `3Dconv` → base branch `main`; notes that task notebooks clone their own branch via `REPO_BRANCH` and that the P1 experiment notebooks still clone `experiments-task02`.
 - **Where:** git refs (local + `origin`); `docs/context/project_context.md` (Environment).
 - **Affects:** Follows D-008 (`main` is the base) and D-026 (`3Dconv` merged). Corrects the stale `3Dconv` line in Munther's always-loaded context. If Munther switches his notebooks' `REPO_BRANCH` to `main`, `experiments-task02` and `experiments-backbone-loader` can be deleted too.
+
+## D-030 — T04_training: AnyUp image half computed once per training step
+- **Date:** 2026-11-17
+- **Branch:** fix/shared-image-encoding (from `main` `9e43ba2`; committed `293d667`, pushed; corrected 2026-11-24)
+- **Decision:** At Muaaz's request (T04_training Q1–Q5, Step 2 answers):
+  - **`anyup/model.py`:** `AnyUp.upsample()` removed; `forward` is now `decode(encode_image(image, features.shape, output_size), features, …)`, same signature and bit-equal outputs (pytest, T_tok 1/2/4, batch 2, `q_chunk_size`, `vis_attn`). `decode` raises a `ValueError` when the features' grid differs from the encoded one. No weights, layers or checkpoint keys change.
+  - **`Train_3D_full.ipynb` cell 13:** the main and self-consistency passes share one `encode_image` result (shape `assert` before the second `decode`). Validation keeps `forward`.
+  - **Q4 amended:** the gradient tolerance (rtol 1e-5, atol 1e-7) is checked in fp32. Under the notebook's bf16 autocast, losses are bit-equal but image-half gradients differ by one bf16 rounding of the summed gradient (≤ 1.0e-2 per-tensor relative L2, CPU dry run); accepted.
+  - **S17 logged:** CPU bf16-autocast `grad_norm` ≈ 1000× the fp32 value (157–609 vs 0.15–0.24), old and new code alike; check on the GPU.
+  - **Step 4 setup:** `REPO_BRANCH = "fix/shared-image-encoding"` in cell 2 until the merge, and a commented T04 debug-run block in cell 3 (90 steps, T=2/4/8 at steps 0/30/60, validation off), as T05 did.
+- **Where:** `anyup/model.py`, new `tests/test_shared_image_encoding.py`, `Train_3D_full.ipynb` cells 2 / 3 / 13, `docs/plan/P1_training_pipeline/T04_training_shared_image_encoding.md`, `plan.md` Task Index, `docs/skipped_and_future_concerns.md` (S16, S17).
+- **Affects:** Implements D-022's plan for S14. Munther's Exp 0–3 call `forward` through `anyup/upsamplers.py`, unchanged in output (`test_upsamplers.py` 34 passed); he is told after the merge (Q2). `REPO_BRANCH` departs from D-028's `main` until T04 merges, then goes back. A run that trains with this code instead of the old one gives bf16-rounding-level different weights; run_03 has not started, so no existing checkpoint is affected.
+
+## D-031 — T04_training T4 run: T=8 fits (10.26 GiB); S14 checked; T04_training done
+- **Date:** 2026-11-24
+- **Branch:** fix/shared-image-encoding (code `293d667`, pushed; close-out committed on top)
+- **Decision:** At Muaaz's request ("log the results and close out"):
+  - **Step 4 run accepted** (Tesla T4, code `293d667`, 90 steps, T=2/4/8 from steps 0/30/60, validation off, no OOM). Peak reserved T=2 5.79 GiB, T=4 5.79 GiB, **T=8 10.26 GiB (70 %)**, vs D-021 10.06 / 10.16 / OOM; within Q5's ≤ 13.5 GiB. Speed 0.44 / 0.53 / 0.35 it/s (D-021: 0.35 / 0.41). 0 skipped steps; monitor overhead 0.021 %.
+  - **Finite losses shown by the monitor's per-step NaN check**, not by logged values: with `log_every_n_steps = 50`, no loss row exists at T=8. No re-run with a shorter interval (Muaaz).
+  - **S14 → checked.** Q3 (next memory measure) not needed.
+  - T04_training → done, not merged yet. `REPO_BRANCH` back to `"main"` on the branch, before the merge (D-030 said after it), so `main` needs no follow-up commit. After the merge, Muaaz sends the drafted message to Munther (Step 5, in the task file).
+  - D-030's Branch line corrected (it said "not yet committed").
+- **Where:** `Train_3D_full.ipynb` cell 2 (`REPO_BRANCH`), `docs/plan/P1_training_pipeline/T04_training_shared_image_encoding.md` (log, status), `plan.md` (Task Index, teacher-fix line), `teacher_16frame_plan.md` (header note), `docs/skipped_and_future_concerns.md` (S14), this file (D-030).
+- **Affects:** Completes D-022's plan for S14; with D-023 (validation time), closes D-021's open items of D-006's "Done when". D-021's "run_03 on a T4 would crash at step 15000" no longer holds for memory. T=8 runs at 0.35 it/s on a T4 (D-021's ≈ 35 h estimate for 50k steps assumed 0.4 it/s). S15 / S17 stay open: this run logged `grad_scale` / `grad_norm` only at steps 0 and 50 (GPU bf16 grad_norm 0.0905 / 0.0691, scale 65536 both, 0 skips; the S17 CPU inflation doesn't show on the GPU there; both rows updated with this data point).

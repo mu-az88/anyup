@@ -79,34 +79,17 @@ class AnyUp(nn.Module):
         ]
         return nn.Sequential(pre, *blocks)
 
-    def upsample(self, enc_img, feats, out_size, vis_attn=False, q_chunk_size=None):
-        b, c, t, h, w = feats.shape
+    def encode_image(self, image, feats_shape, output_size=None):
+        """Image half (T04_training): everything that depends only on the frames.
 
-        # Q
-        q = F.adaptive_avg_pool3d(
-            self.query_encoder(enc_img),
-            output_size=(t, *out_size),
-        )
-
-        # K
-        k = F.adaptive_avg_pool3d(
-            self.key_encoder(enc_img),
-            output_size=(t, h, w),
-        )
-        k = torch.cat([k, self.key_features_encoder(F.normalize(feats, dim=1))], dim=1)
-        k = self.aggregation(k)
-
-        # V
-        v = feats
-
-        if vis_attn:
-            warnings.warn("Visualisation of attention maps is not supported for 3D cross-attention.")
-            vis_attn = False
-
-        return self.cross_decode(q, k, v, store_attn=vis_attn, q_chunk_size=q_chunk_size)
-
-    def forward(self, image, features, output_size=None, vis_attn=False, q_chunk_size=None):
+        image:       (B, 3, T, H, W) guide frames (ImageNet-normalized).
+        feats_shape: shape of the features that will be decoded, (B, C, t, h, w); only (t, h, w) is used.
+        output_size: (H_out, W_out); None → image size, as in forward.
+        Returns (q, k_img): q (B, qk, t, H_out, W_out), k_img (B, qk, t, h, w). Reusable for any features
+        on the same (t, h, w) grid, e.g. the main and self-consistency passes of one training step.
+        """
         output_size = output_size if output_size is not None else image.shape[-2:]
+        _, _, t_f, h_f, w_f = feats_shape
 
         enc = self.image_encoder(image)               # (B, C, T, H, W)
         t, h, w = enc.shape[-3], enc.shape[-2], enc.shape[-1]
@@ -120,4 +103,45 @@ class AnyUp(nn.Module):
         # Restore 5D layout: (B, T*H*W, C) -> (B, C, T, H, W)
         enc = enc.view(enc.shape[0], t, h, w, enc.shape[-1]).permute(0, 4, 1, 2, 3)
 
-        return self.upsample(enc, features, output_size, vis_attn=vis_attn, q_chunk_size=q_chunk_size)
+        # Q
+        q = F.adaptive_avg_pool3d(
+            self.query_encoder(enc),
+            output_size=(t_f, *output_size),
+        )                                             # (B, qk, t_f, H_out, W_out)
+
+        # K (image part)
+        k_img = F.adaptive_avg_pool3d(
+            self.key_encoder(enc),
+            output_size=(t_f, h_f, w_f),
+        )                                             # (B, qk, t_f, h_f, w_f)
+        return q, k_img
+
+    def decode(self, encoded, feats, vis_attn=False, q_chunk_size=None):
+        """Feature half (T04_training): everything that depends on the features.
+
+        encoded: (q, k_img) from encode_image, built for features on the same (t, h, w) grid.
+        feats:   (B, C, t, h, w) raw low-res features (normalized inside, as before).
+        """
+        q, k_img = encoded
+        if k_img.shape[0] != feats.shape[0] or k_img.shape[-3:] != feats.shape[-3:]:
+            raise ValueError(
+                f"AnyUp.decode: features (B, t, h, w) = {(feats.shape[0], *feats.shape[-3:])} don't match "
+                f"the grid encode_image was called with {(k_img.shape[0], *k_img.shape[-3:])}; "
+                f"call encode_image with these features' shape")
+
+        # K
+        k = torch.cat([k_img, self.key_features_encoder(F.normalize(feats, dim=1))], dim=1)
+        k = self.aggregation(k)
+
+        # V
+        v = feats
+
+        if vis_attn:
+            warnings.warn("Visualisation of attention maps is not supported for 3D cross-attention.")
+            vis_attn = False
+
+        return self.cross_decode(q, k, v, store_attn=vis_attn, q_chunk_size=q_chunk_size)
+
+    def forward(self, image, features, output_size=None, vis_attn=False, q_chunk_size=None):
+        encoded = self.encode_image(image, features.shape, output_size)
+        return self.decode(encoded, features, vis_attn=vis_attn, q_chunk_size=q_chunk_size)
