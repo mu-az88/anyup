@@ -321,11 +321,20 @@ Entry format:
 - **Branch:** `main`
 - **Decision:** At Muaaz's request, after the T05_training merge (`547977c`, `c168576`):
   - **Deleted, local + GitHub:** `feat/train-monitor` (`d1e8b7b`), `fix/teacher-full-16frame-clips` (`a0c3ac6`), `Person-b` (`0a60d95`), `modelpy` (`b78cfde`). **Local only:** `chaniging-anyup` (`bee184c`), `modify-architecture` (`669f0c4`), and the local copies of Munther's `3Dconv` (`6eff213`) and `person-bb` (`07f4df5`). Every one was an ancestor of `main` (safe `git branch -d`; nothing lost). Tip hashes kept here so any branch can be recreated.
-  - **Kept on GitHub (Munther's):** `experiments-task02` and `experiments-backbone-loader`, because his notebooks on `main` clone them by name (`experiments/exp0–exp3*.ipynb`, `tests/T02–T04_*_check.ipynb` → `experiments-task02`; `tests/T01_backbone_loader_check.ipynb` → `experiments-backbone-loader`). Deleting them would break those notebooks in Colab. `3Dconv`, `monzir`, `person-bb` are unused but his to delete.
+  - **Kept on GitHub (Munther's):** `experiments-task02` and `experiments-backbone-loader`, because his notebooks on `main` clone them by name (`experiments/exp0–exp3*.ipynb`, `tests/T02–T04_*_check.ipynb` → `experiments-task02`; `tests/T01_backbone_loader_check.ipynb` → `experiments-backbone-loader`). Deleting them would break those notebooks in Colab. `monzir`, `person-bb` are unused but his to delete (deleted 2026-11-24, follow-up below).
+  - _**Correction (2026-11-24):** `3Dconv` is **not** unused, as first written here. These files on `main` clone it by name (`REPO_BRANCH = "3Dconv"`), so deleting it on GitHub breaks them in Colab:_
+    - `results/exp1_spatial_upsampling_quality.ipynb` (line 1154, `git clone -b`)
+    - `results/exp2_temporal_consistency.ipynb` (line 1118, `git clone --branch … --depth 1`)
+    - `results/exp3_product_in_action_FIXED.ipynb` (line 110, `subprocess.run(["git", "clone", "-b", …])`; its saved output also holds an old failed `git clone -b 3Dconv`)
+    - `results/exp3/exp3_product_in_action_old.ipynb` (line 74, same clone call)
+    - `results/exp3/exp3_product_in_action with swin_old.ipynb` (line 75, same clone call)
+    - not a notebook: `train_3d_full.py` (line 30; the read-only script export of the training notebook)
+    - _The `results/` notebooks are the old thesis code that Munther's P1 plan keeps as the regression reference (T05 Q2), so `3Dconv` stays until their `REPO_BRANCH` is switched to `main`. (`tests/conftest.py:27` only mentions `3Dconv` in a comment.)_
   - Kept: the local stash `stash@{0}` (2026-04-02, WIP on `3Dconv`, one line in `tests/test_rope3d.py`, not on `main`).
   - **`docs/context/project_context.md`:** repo branch `3Dconv` → base branch `main`; notes that task notebooks clone their own branch via `REPO_BRANCH` and that the P1 experiment notebooks still clone `experiments-task02`.
 - **Where:** git refs (local + `origin`); `docs/context/project_context.md` (Environment).
-- **Affects:** Follows D-008 (`main` is the base) and D-026 (`3Dconv` merged). Corrects the stale `3Dconv` line in Munther's always-loaded context. If Munther switches his notebooks' `REPO_BRANCH` to `main`, `experiments-task02` and `experiments-backbone-loader` can be deleted too.
+- **Follow-up (2026-11-24):** at Muaaz's request, Munther's `monzir` (`fa2e910`) and `person-bb` (`07f4df5`) **deleted on GitHub**. Both were ancestors of `main`, and no notebook on `main` references them. Munther not asked first (Muaaz's decision).
+- **Affects:** Follows D-008 (`main` is the base) and D-026 (`3Dconv` merged). Corrects the stale `3Dconv` line in Munther's always-loaded context. If Munther switches his notebooks' `REPO_BRANCH` to `main`, `experiments-task02` and `experiments-backbone-loader` can be deleted too; the same holds for `3Dconv` and the `results/` notebooks + `train_3d_full.py` (correction above).
 
 ## D-030 — T04_training: AnyUp image half computed once per training step
 - **Date:** 2026-11-17
@@ -347,7 +356,21 @@ Entry format:
   - **Finite losses shown by the monitor's per-step NaN check**, not by logged values: with `log_every_n_steps = 50`, no loss row exists at T=8. No re-run with a shorter interval (Muaaz).
   - **S14 → checked.** Q3 (next memory measure) not needed.
   - T04_training → done, not merged yet. `REPO_BRANCH` back to `"main"` on the branch, before the merge (D-030 said after it), so `main` needs no follow-up commit. After the merge, Muaaz sends the drafted message to Munther (Step 5, in the task file).
-  - **Follow-up (2026-11-24, `main`):** merged into `main` at Muaaz's request (`726dd0c`, merge commit, pushed; 31 tests passed on the merged tree). `fix/shared-image-encoding` kept (local + GitHub) until Muaaz deletes it.
+  - **Follow-up (2026-11-24, `main`):** merged into `main` at Muaaz's request (`726dd0c`, merge commit, pushed; 31 tests passed on the merged tree). `fix/shared-image-encoding` then **deleted, local + GitHub** (2026-11-24, at Muaaz's request; tip `d0ba307`, an ancestor of `main`, so it can be recreated from that hash).
   - D-030's Branch line corrected (it said "not yet committed").
 - **Where:** `Train_3D_full.ipynb` cell 2 (`REPO_BRANCH`), `docs/plan/P1_training_pipeline/T04_training_shared_image_encoding.md` (log, status), `plan.md` (Task Index, teacher-fix line), `teacher_16frame_plan.md` (header note), `docs/skipped_and_future_concerns.md` (S14), this file (D-030).
 - **Affects:** Completes D-022's plan for S14; with D-023 (validation time), closes D-021's open items of D-006's "Done when". D-021's "run_03 on a T4 would crash at step 15000" no longer holds for memory. T=8 runs at 0.35 it/s on a T4 (D-021's ≈ 35 h estimate for 50k steps assumed 0.4 it/s). S15 / S17 stay open: this run logged `grad_scale` / `grad_norm` only at steps 0 and 50 (GPU bf16 grad_norm 0.0905 / 0.0691, scale 65536 both, 0 skips; the S17 CPU inflation doesn't show on the GPU there; both rows updated with this data point).
+
+## D-032 — T01_training: temporal loss matches the teacher's change over time
+- **Date:** 2026-11-24
+- **Branch:** fix/temporal-dynamics-loss (from `main` `ee17ef0`; code `c48f00e`, close-out after it)
+- **Decision:** At Muaaz's request (T01_training file approved; Q6, Q7):
+  - **T04_training merged into `main` first** (Q6; `726dd0c`, see D-031 follow-up), then this branch created from it.
+  - **New loss** `anyup/data/training/temporal_dynamics_loss.py`: `mean ‖Δ norm(pred) − Δ norm(gt)‖²` over tubelet pairs, unit-normalized, float32. Replaces the inline `feat_diff.pow(2) * gate` loss in `Train_3D_full.ipynb` cell 13, which penalized any change and so rewarded frozen features. The RGB-diff gate is no longer used by training (`get_rgb_diff_gate` kept for an ablation, Q5).
+  - **λ warmup** (cell 8) starts at `TEMP_START_STEP`, the first stage with ≥ 2 tubelets (5000 by default), instead of step 0.
+  - **New scalar** `loss/temp_over_rec` (TensorBoard) for λ tuning after the merge (Step 6, Q3/Q4).
+  - Debug run (Q7): `REPO_BRANCH` = this branch until the merge; commented 90-step block in cell 3 with `log_every_n_steps = 10` and a 20-step warmup.
+  - **Debug run accepted** (Tesla T4, code `c48f00e`, 90 steps; run twice after a disconnect, same final losses): `loss/temporal` 0 at T=2 and at step 30, non-zero and finite at T=4 / T=8; λ 0.1 at step 40, full 0.2 from step 50; `loss/temp_over_rec` at full λ 0.76 (T=4) and 0.52 → 0.36 (T=8). Reserved 5.79 / 5.79 / 10.26 GiB, the same as D-031; 0 skipped steps.
+  - **Close-out:** T01_training → done, not merged yet. `REPO_BRANCH` back to `"main"` on the branch, before the merge (as D-031).
+- **Where:** new `anyup/data/training/temporal_dynamics_loss.py`, new `tests/test_temporal_dynamics_loss.py`, `Train_3D_full.ipynb` cells 2 / 3 / 8 / 12 / 13, `docs/plan/P1_training_pipeline/T01_training_temporal_dynamics_loss.md`, `plan.md` Task Index.
+- **Affects:** Replaces the RGB-gated `feat_diff` loss. **Changes the meaning of `lambda_temporal_consistency`** (0.2 kept for now): it now weighs a scale-free loss in [0, 16] per location, not raw feature-difference energy, so values from run_01 / run_02 don't carry over (retune in Step 6, after the merge). Changes when the warmup runs (D-004 point 3: retuning is after the merge). Training with this code is not comparable step for step with run_01 / run_02 or with T04's debug run. `losses.py` (`temporal_consistency_loss`, used by `combined_loss`) unchanged. S16 (cell 27 uses `get_rgb_diff_gate`) is unaffected: the gate function still exists. `REPO_BRANCH` departed from `main` for the debug run, as in D-030, and is back to `"main"` before the merge (as D-031). The debug-run ratio (0.36–0.76) is above Step 6's 0.1–0.3 target; λ stays 0.2 until Step 6.
