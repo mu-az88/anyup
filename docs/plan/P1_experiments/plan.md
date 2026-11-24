@@ -106,3 +106,4 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | T08 | Exp 0 efficiency notebook (params, time, memory; renamed from Exp 4) | B wrap-up | done (run 1 on a T4; A100 run skipped → S07) | `T08_exp0_efficiency.md` |
 | T09 | Interactive HTML documentation of Exp 0–3 (pages, steps, code, helper links) | B wrap-up | done | `T09_experiments_html_docs.md` |
 | T10 | Presentation-grade visual checks for Exp 1–3 (upgraded visual cells, `anyup/viz.py`, MP4/GIF) — P1 addendum | B wrap-up | in progress | `T10_visual_checks.md` |
+| T11 | Exp 3 debug notebook: resolution ceiling, local window, DINOv2 swap, Swin-T 448 (find the shared bottleneck) — P1 addendum | B diagnostics | in progress | `T11_exp3_debug.md` |
