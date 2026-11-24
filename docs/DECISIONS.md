@@ -351,3 +351,15 @@ Entry format:
   - D-030's Branch line corrected (it said "not yet committed").
 - **Where:** `Train_3D_full.ipynb` cell 2 (`REPO_BRANCH`), `docs/plan/P1_training_pipeline/T04_training_shared_image_encoding.md` (log, status), `plan.md` (Task Index, teacher-fix line), `teacher_16frame_plan.md` (header note), `docs/skipped_and_future_concerns.md` (S14), this file (D-030).
 - **Affects:** Completes D-022's plan for S14; with D-023 (validation time), closes D-021's open items of D-006's "Done when". D-021's "run_03 on a T4 would crash at step 15000" no longer holds for memory. T=8 runs at 0.35 it/s on a T4 (D-021's ≈ 35 h estimate for 50k steps assumed 0.4 it/s). S15 / S17 stay open: this run logged `grad_scale` / `grad_norm` only at steps 0 and 50 (GPU bf16 grad_norm 0.0905 / 0.0691, scale 65536 both, 0 skips; the S17 CPU inflation doesn't show on the GPU there; both rows updated with this data point).
+
+## D-032 — T01_training: temporal loss matches the teacher's change over time
+- **Date:** 2026-11-24
+- **Branch:** fix/temporal-dynamics-loss (from `main` `ee17ef0`; not yet committed)
+- **Decision:** At Muaaz's request (T01_training file approved; Q6, Q7):
+  - **T04_training merged into `main` first** (Q6; `726dd0c`, see D-031 follow-up), then this branch created from it.
+  - **New loss** `anyup/data/training/temporal_dynamics_loss.py`: `mean ‖Δ norm(pred) − Δ norm(gt)‖²` over tubelet pairs, unit-normalized, float32. Replaces the inline `feat_diff.pow(2) * gate` loss in `Train_3D_full.ipynb` cell 13, which penalized any change and so rewarded frozen features. The RGB-diff gate is no longer used by training (`get_rgb_diff_gate` kept for an ablation, Q5).
+  - **λ warmup** (cell 8) starts at `TEMP_START_STEP`, the first stage with ≥ 2 tubelets (5000 by default), instead of step 0.
+  - **New scalar** `loss/temp_over_rec` (TensorBoard) for λ tuning after the merge (Step 6, Q3/Q4).
+  - Debug run (Q7): `REPO_BRANCH` = this branch until the merge; commented 90-step block in cell 3 with `log_every_n_steps = 10` and a 20-step warmup.
+- **Where:** new `anyup/data/training/temporal_dynamics_loss.py`, new `tests/test_temporal_dynamics_loss.py`, `Train_3D_full.ipynb` cells 2 / 3 / 8 / 12 / 13, `docs/plan/P1_training_pipeline/T01_training_temporal_dynamics_loss.md`, `plan.md` Task Index.
+- **Affects:** Replaces the RGB-gated `feat_diff` loss. **Changes the meaning of `lambda_temporal_consistency`** (0.2 kept for now): it now weighs a scale-free loss in [0, 16] per location, not raw feature-difference energy, so values from run_01 / run_02 don't carry over (retune in Step 6, after the merge). Changes when the warmup runs (D-004 point 3: retuning is after the merge). Training with this code is not comparable step for step with run_01 / run_02 or with T04's debug run. `losses.py` (`temporal_consistency_loss`, used by `combined_loss`) unchanged. S16 (cell 27 uses `get_rgb_diff_gate`) is unaffected: the gate function still exists. `REPO_BRANCH` departs from `main` until the merge, as in D-030.
