@@ -5,7 +5,7 @@
 | Task ID | T01_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
 | Branch | `fix/temporal-dynamics-loss`, from `main` `ee17ef0` after the T04_training merge (Q6; the teacher fix is merged, D-026; base `main` since D-008) |
-| Status | in progress |
+| Status | done (D-032) |
 | Depends on | Teacher 16-frame fix (`teacher_16frame_plan.md` in this folder, D-006; merged, D-026): `gt_feats` / `T_tok` come from its window slicing. T04_training (merged first, Q6): also edits cell 13. T05_training monitor (D-028): used by the debug run |
 | Blocks | — |
 
@@ -198,3 +198,26 @@ _Updated live during implementation. Per step: what changed, files touched, test
 - **2026-11-24: Step 5 setup (Q7).** Cell 2: `REPO_BRANCH = "fix/temporal-dynamics-loss"` (back to `"main"` before the merge). Cell 3: commented "T01_training debug run" block after T04's: `experiment_name = "t01_temporal_dyn"` (+ `checkpoint_dir` / `log_dir`), `max_steps = 90`, `val_every_n_steps = 10_000`, `log_every_n_steps = 10`, `temporal_lambda_warmup_steps = 20`, schedule T=2 bs 2 / T=4 bs 1 / T=8 bs 1 from 0 / 30 / 60. Cell 3 parses, and the block parses when uncommented.
   - **Memory estimate for the run:** the same steps as T04's T4 run (D-031: 5.79 / 5.79 / 10.26 GiB reserved), plus the new loss. Bytes autograd keeps for the backward pass (CPU, saved-tensor hooks, bf16 inputs as under autocast, batch 1, 14²): new loss 1.7 / 4.0 MiB at T_tok 2 / 4 vs old 0.3 / 0.9 MiB → **+1.4 / +3.2 MiB**. Expected peak ≈ 10.3 GiB at T=8, 4.3 GiB below the T4's 14.6. **OOM likelihood: low** (the same run fit with 4.3 GiB to spare; the change is ~1/1000 of that). `log_every_n_steps = 10` is CPU-side only.
   - **Estimate and run OK'd by Muaaz (2026-11-24).** Waiting for the commit + push and the Colab run.
+- **2026-11-24: Step 5 done: Colab debug run passes** (Tesla T4, PyTorch 2.14.1+cu130, code `c48f00e`, the commented T01 block in cell 3). Run 1 completed; the runtime disconnected after `monitor_history.csv` and the TensorBoard scalars (event dir `runs/t01_temporal_dyn/2026-11-24_13-20-39/`) were read, so Muaaz ran it again (run 2; the monitor started a new history, "kept 0 of 9 rows", so the CSV on Drive is now run 2's). The numbers below are from run 1's CSV and events.
+  - Cell 8: `Temporal loss: λ warmup from step 30 over 20 steps (full λ = 0.2 from step 50)`.
+
+    | step | T | λ | loss_rec | loss_temporal (×λ) | raw loss (÷λ) | `loss/temp_over_rec` | grad_norm |
+    |---|---|---|---|---|---|---|---|
+    | 0 / 10 / 20 | 2 | 0 | 0.0804 / 0.0881 / 0.0627 | 0.0 | — | 0.0 | 0.090 / 0.030 / 0.020 |
+    | 30 | 4 | 0 | 0.0929 | 0.0 | — | 0.0 | 0.030 |
+    | 40 | 4 | 0.1 | 0.1037 | 0.0204 | 0.204 | 0.1968 | 0.040 |
+    | 50 | 4 | 0.2 | 0.1005 | 0.0767 | 0.383 | 0.7627 | 0.131 |
+    | 60 | 8 | 0.2 | 0.1031 | 0.0534 | 0.267 | 0.5178 | 0.048 |
+    | 70 | 8 | 0.2 | 0.1038 | 0.0390 | 0.195 | 0.3755 | 0.028 |
+    | 80 | 8 | 0.2 | 0.0955 | 0.0346 | 0.173 | 0.3624 | 0.088 |
+
+  - **Checks, all pass:** `loss/temporal` = 0 in the T=2 stage (1 tubelet) and at step 30 (λ = 0 at `TEMP_START_STEP`); finite and non-zero at T=4 and T=8; λ 0.1 at step 40 and full 0.2 from step 50, as designed; `loss/temp_over_rec` logged, and it equals loss_temporal / loss_rec from the CSV (e.g. step 80: 0.03460 / 0.09548 = 0.3624). `loss_total` = rec + inp + aug + temporal to 1e-8 (steps 50, 80).
+  - **Ratio at full λ (reported, not tuned; Q3):** T=4 0.76 (step 50, 1 point), T=8 0.52 → 0.38 → 0.36 (steps 60–80). Above Step 6's target of 0.1–0.3, but this is 90 steps with batch 1 and one sample per point; the raw loss falls from 0.38 to 0.17 over the same steps. The λ value is for Step 6 (after the merge) to decide.
+  - **Memory and speed (both runs):** reserved 5.79 / 5.79 / 10.26 GiB (40 / 40 / 70 % of 14.6 GiB) at T=2 / 4 / 8, peak alloc 5.70 / 5.40 / 10.05 GiB: the same as T04's run (D-031) to the printed precision, so the new loss costs nothing measurable (estimate +3.2 MiB). Median s/step run 1 2.283 / 1.899 / 2.852, run 2 2.546 / 1.881 / 2.890. Skipped steps 0; grad_scale 65536 throughout; monitor overhead 0.050 % / 0.038 %. No OOM.
+  - Run 2's final progress bar equals run 1's (loss 0.1355, rec 0.0955, inp 0.0021, lr 6.85e-06): the run repeats to the shown 4 digits.
+  - Correction: from run 1's progress bar I had estimated temporal ≈ 0.037 and ratio ≈ 0.39 at step 80 (assuming aug ≈ 0.0008); the CSV gives aug 0.0032, temporal 0.0346, ratio 0.36.
+  - All Done When items are now met. Waiting for Muaaz's OK to close out.
+- **2026-11-24: close-out** (Muaaz: "go ahead"). All Done When items met: 9 + 19 tests pass; `feat_diff` gone from cell 13; λ(`TEMP_START_STEP`) = 0 and full at `TEMP_START_STEP + warmup` (local check and the Colab run); the debug run passes, ratio reported; D-032 in `docs/DECISIONS.md`; this log and the Task Index up to date. Status → done.
+  - `REPO_BRANCH` in cell 2 back to `"main"` (main's original line) **before the merge, on this branch**, as T04 did, so `main` needs no follow-up commit. The T01 block in cell 3 stays commented, like the T04 and T05 blocks.
+  - Left: the merge into `main` (Muaaz's call); Step 6 after the merge (a run to step ≈ 10000, then λ from `loss/temp_over_rec`; the debug run's 0.36–0.76 is above the 0.1–0.3 target, so expect a lower λ, but decide on the real run).
+  - Not verified: the Step 6 behaviour (whether the loss actually improves temporal consistency) can only show on a long run; the debug run only shows the loss is wired correctly, finite and cheap.
