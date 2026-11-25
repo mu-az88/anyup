@@ -122,3 +122,11 @@ Outputs: `/content/drive/MyDrive/results/T11/exp3_debug/<RUN_NAME>/` (CSV, JSON,
   - (56² chunk 16 = 112² chunk 4 exactly: same query × key count, 50,176 × 4,096.) q_chunk 4096 and 1024 give the same peak → the full mask + per-call tensors dominate, not the attention rows.
   - Whole clip (chunk 8, q_chunk 1024; feature store + AnyUp3D): 56² peak 2.83 GiB (store 0.90), 112² 10.15 (store 3.59), **112×200 OOM** (store 6.41).
 - **Step 7: `exp3_debug_E.ipynb` set for the real run with AnyUp3D:** `E_CHUNK_3D` per variant = 8 / 8 / **4 at 112×200** (estimate 5.9 + 6.4 ≈ 12.3 of 14.6 GiB). Consequence: AnyUp3D's temporal context is 4 frames at 112×200 (8 elsewhere; Exp 3 used 16). `CLIPS_E = None` → all 30. Dry run (stubs): runs end to end. Not run on Colab.
+- **Colab run 5 (`exp3_debug_E.ipynb` with AnyUp3D, T4, 5 clips, commit `9c34ff5`; `E_CHUNK_3D` 8 / 8 / 4, q_chunk 1024): ran end to end, no OOM, 3523 s.** The 112×200 chunk-4 estimate (≈ 12.3 of 14.6 GiB) held, but the whole-clip peak was not logged. Official J&F (lost object-frames of 410):
+  - dino_ref 0.581 (5.1 %).
+  - e224_p56: bilinear 0.311 / AnyUp2D 0.398 / AnyUp3D 0.326 (22.9 / 27.8 / **47.6 %**).
+  - e448_p112: 0.590 / **0.763** / 0.562 (0 / 0 / 11.2 %).
+  - e448x798_p112x200: 0.663 / **0.791** / 0.595 (0 / 0 / 13.2 %). AnyUp3D has a 4-frame context here.
+  - Bilinear and AnyUp2D match run 3 exactly.
+  - Reading: AnyUp3D on DINOv2 (zero-shot; trained on VideoMAE) is below AnyUp2D at every size and below bilinear at 448. It is the only upsampler that still loses objects at 448. The cause has not been looked into.
+- **Findings write-up** (Monzir: "put them in an md file so I can share them with my pair"): new `docs/experiments/exp3_debug_findings.md`. It covers 3 problems (low J&F for all methods = resolution; AnyUp3D weak at usable resolution, cause unknown; AnyUp3D mask memory), with evidence, causes, the fix options, and a suggested order. Nothing decided yet.
