@@ -37,6 +37,9 @@ Monzir asked directly for the notebook ("make me a code to test all these ideas 
 | 6 | Isolation | Each test changes **one** thing vs the baseline; propagation size stays 56², τ / top-k / context unchanged. C and D also run the window, so the combinations come for free (propagation only). |
 | 7 | Scoring path | Predictions are nearest-resized to native in memory (`davis.resize_labels`, the same cv2 call as `save_mask_png`), no PNG write. Official `eval_clip_jf` + `summarize_jf`. |
 | 8 | Sanity checks | (i) the window-free propagation in the notebook equals `davis.propagate_labels` exactly on one clip; (ii) the baseline reproduces T05 (bilinear 0.1272, AnyUp3D 0.2308; tol 0.002, GPU propagation). |
+| 9 | Test E backbone (after run 1, Monzir: "run a test on bilinear with good resolution … and also anyup2d") | **DINOv2-B only.** Conditions bilinear + AnyUp2D (AnyUp3D left out: its full attention does not fit these sizes on a T4). |
+| 10 | Test E resolutions | **Ladder, aspect kept:** DINOv2 input 224² → propagation 56² (= Test C dino224), 448² → 112², 448×798 → 112×200 (no squash). |
+| 11 | Test E external reference | **Yes:** the published DINO propagation protocol (476×854 input, native 34×61 grid, no upsampler, window 12, top-5, τ 0.1, frame 0 + last 7, soft labels ×14 bilinear → argmax). DINO ViT-B/16 paper J&F 0.623 as an order-of-magnitude line. |
 
 ## Design
 
@@ -50,6 +53,7 @@ Notebook cells:
 6. Test C: DINOv2 224 and 448; variants `none`, `r12`; scatter + mask panels + LR feature PCA (Swin 7×7 vs DINOv2 16² / 32²).
 7. Test D: Swin-T 448 (chunk 8); variants `none`, `r12`; scatter + mask panels + LR feature PCA.
 8. Summary: one table (J&F / J / F official per variant × condition, Δ vs baseline, paired stats on per-clip J&F), bar chart, `save_results`.
+9. **Test E** (added after run 1; needs Cells 1–3 only): `propagate_e` = the `davis.propagate_labels` rule in query chunks (memory ∝ `E_Q_CHUNK`), optional window, returns soft labels; per variant and condition a full-clip normalized feature tensor on the GPU (backbone re-run per condition so only one set is held). Prints J&F / J / F, the ceiling of each grid (Test A rule) and **lost object-frames** (object in the GT, 0 predicted pixels). Checks (iii) `propagate_e` = `davis.propagate_labels` on the first clip, (iv) e224_p56 bilinear = Test C dino224. Figures `E_bars.png`, `E_masks.png` (2 best + 2 worst clips of the largest grid); results `exp3_debug_E_*`.
 
 Outputs: `/content/drive/MyDrive/results/T11/exp3_debug/<RUN_NAME>/` (CSV, JSON, PNGs).
 
@@ -80,4 +84,23 @@ Outputs: `/content/drive/MyDrive/results/T11/exp3_debug/<RUN_NAME>/` (CSV, JSON,
     - **Dry run of Cells 2–8** with stub backbones / upsamplers on 4 synthetic DAVIS clips (12 frames, 480×854, 2–3 objects incl. a planted 6×6 px object): every cell runs; check (i) PASS (0 differing pixels, real `davis.propagate_labels`); Test A flags the planted object (36 px → 0 px at 56²); all 13 outputs written (`A_ceiling`, `A_worst_clips`, `B_scatter`, `B_masks`, `C_scatter`, `C_masks`, `C_grids`, `D_scatter`, `D_masks`, `D_grids`, `summary` PNGs + CSV + JSON). The stub numbers mean nothing about the real models.
     - Figure fix from the dry run: Test A bar colours clashed with the reference lines and the legend covered the bars (→ blue bars, legend outside).
   - Not verified: real T4 memory and run time (estimates only, in the notebook intro); the OOM guard path itself (never triggered locally).
-- **Waiting for the Colab run** (step 2).
+- **Step 2: Colab run 1** (T4, 30 clips, commit `2919e92`, `RUN_NAME p56_n30_bilinear-anyup3d`; outputs saved in the notebook, read locally).
+  - Checks: (i) PASS (0 differing pixels, bike-packing); (ii) PASS (bilinear 0.1272 vs 0.1272, AnyUp3D 0.2309 vs 0.2308).
+  - **A (ceiling, official J&F):** 28² 0.497, **56² 0.712**, 112² 0.873, 56×100 0.820. Lost frame-0 objects at 56²: lab-coat obj 1 (18 px → 0), obj 2 (14 px → 1). Worst ceilings: kite-surf 0.486, lab-coat 0.623, bmx-trees 0.576.
+  - **B (window, Swin 224):** no effect: bilinear +0.0004 (w6) / +0.0003 (w12), AnyUp3D −0.0010 / −0.0014.
+  - **C (DINOv2 224, 16²):** bilinear 0.3550 (+0.228, 29/30), AnyUp3D 0.3922 (+0.161, 29/30); window again ≈ 0. **dino448 SKIPPED: CUDA OOM** (tried to allocate 12.25 GiB with `CHUNK_SIZE_C=16`, `Q_CHUNK=None`).
+  - **D (Swin-T 448, 14²):** bilinear 0.2117 (+0.085, 27/30), AnyUp3D 0.3289 (+0.098, 26/30); w12 AnyUp3D 0.3311.
+  - AnyUp3D − bilinear: swin224 +0.104, swin448 +0.117, dino224 +0.037. AnyUp3D < bilinear clips at dino224: parkour (0.064 vs 0.328), drift-straight, bmx-trees, horsejump-high, judo, shooting.
+  - Visuals (C_masks): many failures are **objects that vanish completely** (empty prediction), e.g. drift-chicane in every variant, breakdance swin224/bilinear.
+  - `RuntimeWarning: invalid value encountered in divide` at `metrics.py:94` is harmless: the official `db_eval_iou` sets union = 0 frames to J = 1 right after.
+  - Status of the run: open items = dino448 re-run (smaller chunk), next tests (decided with Monzir).
+- **Step 3: Test E (Cell 9) added** + `E_*` config in Cell 2 + intro row. Local CPU dry run with stubs: check (iii) PASS (0 of 31,360 grid pixels differ); `propagate_e` = `davis.propagate_labels` on random features for query chunks 600 / 128 / 7 (0 differing pixels); radius ≥ grid = no window.
+- **Colab run 2 (Cell 9, partial, pasted by Monzir):** check (iii) PASS (0 of 216,384 pixels, bike-packing). Finished: e224_p56 (452 s) and e448_p112 (3,104 s) on all 30 clips; e448x798_p112x200 at ≈ 4–6 min per clip (4 clips done when pasted). Clip-mean J&F from the printed lines (not the official object-weighted mean): e224_p56 bilinear 0.382 / AnyUp2D 0.454 (AnyUp2D > bilinear on 24/30); **e448_p112 bilinear 0.588 / AnyUp2D 0.686** (26/30). DINO reference not reached yet.
+- **Step 4: Cell 10 added** (summary of finished clips after interrupting Cell 9, without restarting the runtime): frees the interrupted GPU tensors, optionally runs `dino_ref`, official tables on all clips + on the interrupted variant's finished clips, ceilings, lost object-frames, `E_bars.png`, `E_per_clip.png`, `E_masks.png`, `exp3_debug_E_*`. Local dry run with a simulated interrupt: runs end to end, partial variant handled (1 clip common to both conditions).
+- **Colab run 2 deleted by Monzir** (interrupted before Cell 10 ran; nothing saved). Request: a standalone Test E notebook on 5 clips with visuals.
+- **Step 5: new `experiments/exp3_debug_E.ipynb`** (6 cells; standalone, needs no other notebook; scratchpad `t11/e_cells.py` + `make_e_nb.py`). Same `propagate_e` / `run_e` as Cell 9. Changes vs Cell 9:
+  - **5 clips (my pick, a config line):** blackswan, dog (easy), bmx-trees (thin object), drift-chicane (vanished everywhere in run 1), parkour (AnyUp3D collapse).
+  - The DINO reference runs **first** (cheap, external check). Results cell is separate, so it also works after an interrupt (fair table on the clips every variant finished).
+  - Visuals: `E_bars.png` (official J&F + grid ceilings + DINO paper line), `E_per_clip.png` (one line per clip across the ladder), `E_masks_<clip>.png` (GT + every variant, 2 frames per clip). Check iv dropped (needs 30 clips).
+  - Outputs: `results/T11/exp3_debug_E/n5/`.
+  - **Local CPU dry run** (stubs, synthetic DAVIS named as the 5 clips, small grids): equivalence check PASS (0 of 31,360 pixels differ); full run and simulated interrupt both run end to end and write all figures + CSV/JSON. Not run on Colab yet.
