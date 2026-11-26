@@ -173,6 +173,8 @@ All four real-data tests should now pass (no more skips).
 
 #### Step 4 — Start training
 
+> **Retired (2026-11-26, T03_training, D-034):** `train_3d.py` and its config are now in `trash can/` and are no longer maintained. Train with `Train_3D_full.ipynb` (repo root, Colab), the source of every real checkpoint. The commands below are kept for reference only.
+
 ```bash
 python train_3d.py --config configs/anyup3d_train.yaml
 

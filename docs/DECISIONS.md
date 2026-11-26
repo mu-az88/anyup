@@ -388,3 +388,14 @@ Entry format:
 - **Where:** `Train_3D_full.ipynb` cells 2 / 3 / 7, new `tests/test_window_t.py`, `docs/plan/P1_training_pipeline/T02_training_window_t_passthrough.md`, `plan.md` Task Index, S13 note in `docs/skipped_and_future_concerns.md`.
 - **Affects:** Training at T ≤ 8 is unchanged (same mask as the default 3; tests prove equal outputs), so D-031 / D-032 runs stay comparable. The `cfg` saved in checkpoints now matches the model (`window_t=3`); run_01 / run_02 checkpoints still say 4 but used `None` / 3 (D-015, D-016). A future T=16 stage (S11) will mask at 3. The evaluation wrapper (`anyup/upsamplers.py`, `window_t=4`, Munther's T03) is unchanged; which value evaluation should use stays open in S13. `train_3d.py` still builds `AnyUp()` with defaults (T03_training retires it).
 - **Follow-up (2026-11-26, `main`):** merged into `main` at Muaaz's request (`dfb14dc`, merge commit; 98 tests passed on the merged tree). `docs/context/project_context.md:28` updated (training passes 3 since D-033). `fix/window-t-passthrough` deleted, local + GitHub (tip `b6a6934`, an ancestor of `main`). Munther told by email (drafted for Muaaz).
+
+## D-034 — T03_training: `train_3d.py` retired; `Train_3D_full.ipynb` is the one 3D training entry point
+- **Date:** 2026-11-26
+- **Branch:** chore/retire-train-3d-script (from `main` `1cec4e7`)
+- **Decision:** At Muaaz's request ("do T03"; Q1–Q6 from D-017 / D-018, Munther agreed):
+  - `train_3d.py` → `trash can/train_3d.py`, `config/anyup3d_train.yaml` → `trash can/anyup3d_train.yaml` (`git mv`).
+  - Deleted `tests/test_smoke_train3d.py`, `tests/test_train_infrastructure.py`, `tests/test_gt_extractor_integration.py` (74 tests of retired code only).
+  - Notes: `docs/training_guide.md` (retired, use `Train_3D_full.ipynb`); `docs/plan/P1_experiments/plan.md:39` (answer to Munther's "decide in P2 which training entry point is canonical").
+  - Full `pytest` (local CPU): 415 passed / 5 skipped / 2 errors before → 341 / 5 / 2 after; only the 74 IDs of the deleted files removed. The 2 errors are the known `cv2` collection errors.
+- **Where:** the files above, `docs/plan/P1_training_pipeline/T03_training_retire_train_3d_script.md`, `plan.md` Task Index.
+- **Affects:** Answers the open question in Munther's P1 plan ("Issues for P2"). D-017 / D-018 (plan) carried out as answered. The reusable pieces of `train_3d.py` (atomic checkpoint write, best-checkpoint tracking, `t_k` expansion on resume) are retired with it (Q4); take them from `trash can/` or git history if needed. `checkpoints/anyup3d/` smoke-run files kept (Q5), but a full local `pytest` no longer rewrites them (the smoke test was the cause, D-031 note). Memory note "`test_smoke_train3d.py` fails on Windows" no longer applies. `train.py` (2D) and `train_3d_full.py` (read-only reference, D-012) unchanged. Closed task files that still name `train_3d.py` / `config/anyup3d_train.yaml` stay as historical records.

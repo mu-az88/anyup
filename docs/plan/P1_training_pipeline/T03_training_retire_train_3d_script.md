@@ -4,8 +4,8 @@
 |---|---|
 | Task ID | T03_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
-| Branch | `chore/retire-train-3d-script`, branched from `main` after the teacher fix is merged into `main` (D-008) |
-| Status | Q&A (all answered; waiting for your OK to implement) |
+| Branch | `chore/retire-train-3d-script`, from `main` `1cec4e7` (created by the assistant, as in T02 Q4) |
+| Status | done (D-034); not merged yet |
 | Depends on | — (Munther agreed, Q1) |
 | Blocks | — |
 
@@ -84,3 +84,13 @@ _Updated live during implementation. Per step: what changed, files touched, test
 
 - **2026-11-15: task file written** (D-017), from reading the code only; nothing has been run or moved.
 - **2026-11-15: Q1–Q6 answered** (agreed / move / delete / retire / keep / add note). Scope and Design updated: the Q5 option removed, `checkpoints/anyup3d/` out of scope (D-018). Waiting for your OK to implement on `chore/retire-train-3d-script`.
+- **2026-11-26: OK'd** (Muaaz: "do T03"). Re-checked first: Q1–Q6 unchanged; branch `chore/retire-train-3d-script` created from `main` `1cec4e7`. Status → in progress.
+- **2026-11-26: Step 1 done (baseline).** Full `pytest` (local venv, Python 3.12.10, torch 2.11.0+cpu, `--continue-on-collection-errors`): **415 passed, 5 skipped, 2 errors**, 420 collected, 307 s. The 2 errors are `test_davis.py` / `test_metrics.py` collection (`cv2` not in the local venv; known, unrelated). The three files to delete hold 2 + 65 + 7 = 74 tests, as in Tests.
+  - Side effect (Finding H): `test_smoke_train3d.py` overwrote the tracked `checkpoints/anyup3d/final.pth` and `step_000010.pth` and wrote a new 5 KB tfevents file in `checkpoints/anyup3d/logs/`. Restored both `.pth` files to `HEAD` (`git checkout --`) and deleted the new tfevents file (created by this run), so `checkpoints/anyup3d/` is unchanged (Q5).
+- **2026-11-26: Step 2 done.** `git mv train_3d.py "trash can/train_3d.py"`, `git mv config/anyup3d_train.yaml "trash can/anyup3d_train.yaml"`, `git rm` of the three test files.
+- **2026-11-26: Step 3 done.** `git grep` for the retired names outside `trash can/`: **no reference in any `.py`, `.ipynb`, `.yaml`, `.toml` or other code/config file.** Doc references:
+  - Fixed: `docs/training_guide.md` (note above the Step 4 commands, Q6); `docs/plan/P1_experiments/plan.md:39` (inline `_(…)_` answer note, Munther's open question; it also points to D-033 for the `window_t=4` claim in the same bullet).
+  - Left as historical records: `docs/DECISIONS.md` (D-007, D-017, D-031, D-033), closed task files (P1_experiments T01 `config/anyup3d_train.yaml:12`, T02, T03, T07; P1_training T02), and this file.
+- **2026-11-26: Step 4 done.** Full `pytest` again: **341 passed, 5 skipped, 2 errors** (same 2 `cv2` errors), 346 collected, 31 s. Collected test IDs before vs after: the only removed IDs are the 74 from the three deleted files (7 / 2 / 65), none added; passed 415 → 341 (−74), skipped 5 → 5. `checkpoints/anyup3d/` unchanged (the smoke test is gone).
+  - `git diff --stat`: only the files in Design + the two doc notes (`Train_3D_full.ipynb`, `anyup/`, `train.py` untouched).
+- **2026-11-26: close-out.** All Done When items met: Steps 1–4 with both pytest counts recorded; the answer note in Munther's P1 plan; D-034; this log and the Task Index. Status → done. Left: the merge into `main` (your call). Note: tests now run in about 31 s instead of about 5 min, and a full local `pytest` no longer modifies tracked files in `checkpoints/anyup3d/`.

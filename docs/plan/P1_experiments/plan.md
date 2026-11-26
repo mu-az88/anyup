@@ -36,7 +36,7 @@ _Naming (T08): the efficiency experiment is **Exp 0** (formerly Exp 4). In the T
 ## Issues for P2 (training pipeline), found during P1
 
 - `anyup/data/video_dataset.py:40` falls back to `torchvision.io.read_video`, which was removed in torchvision 0.26 (Colab, found in T02). The fallback is dead code: if decord fails, training crashes with an `ImportError`. Fix in P2 (decord only, as in `anyup/video.py`, or another reader).
-- `train_3d.py` does not match the checkpoints in use (found in T03): it builds `AnyUp()` with the default `window_t=3` (`train_3d.py:394`) and saves under `model_state_dict`, while the run_01/run_02 checkpoints come from `Train_3D_full.ipynb` (`window_t=4`, key `"anyup"`, pickled `TStage`). Decide in P2 which training entry point is canonical.
+- `train_3d.py` does not match the checkpoints in use (found in T03): it builds `AnyUp()` with the default `window_t=3` (`train_3d.py:394`) and saves under `model_state_dict`, while the run_01/run_02 checkpoints come from `Train_3D_full.ipynb` (`window_t=4`, key `"anyup"`, pickled `TStage`). Decide in P2 which training entry point is canonical. _(Decided in T03_training, 2026-11-26, D-034: `Train_3D_full.ipynb` is canonical; `train_3d.py` retired to `trash can/`. Also, the notebook's `window_t=4` was never passed to the model before T02_training, D-033.)_
 
 ## Open Questions
 
