@@ -4,8 +4,8 @@
 |---|---|
 | Task ID | T02_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
-| Branch | `fix/window-t-passthrough`, branched from `main` after the teacher fix is merged into `main` (D-008) |
-| Status | Q&A |
+| Branch | `fix/window-t-passthrough`, from `main` `b6dac9c` (Q4; the teacher fix, T04 and T01 are merged) |
+| Status | done (D-033); not merged yet |
 | Depends on | — (independent code; branch order only avoids notebook merge conflicts with the teacher fix) |
 | Blocks | Any training stage with more than 4 tubelets (T=16, skipped item S11): there `window_t` starts to matter |
 
@@ -45,6 +45,8 @@ Make the `window_t` set in the training config actually reach the model, so the 
 | 1 | Which value should training pass from now on? (a) keep `cfg.window_t = 4`; (b) set it to 3; (c) `None`. At T ≤ 8 frames all three train identically (Finding C). The choice only matters once a T=16 stage exists | **3** (Muaaz, 2026-11-15): `cfg.window_t = 3`, the largest tubelet distance training actually sees. |
 | 2 | Do we correct Munther's notes ("training used 4" in `anyup/upsamplers.py:40,47` and `project_context.md:28`) in this task, or does Munther change them? | **I do it now** (Muaaz, 2026-11-15), ahead of the rest of this task, on `fix/teacher-full-16frame-clips`. Done; see the Implementation Log. Only comments and notes change; the wrapper's value stays 4 (changing it would change Exp 0–3 results, which is S13's measurement). |
 | 3 | Should the cell 7 print line also show the model's real `window_t` (`anyup.cross_decode.window_t`), so a run's log proves which value was used? | **Yes** (Muaaz, 2026-11-15). |
+| 4 | Who creates the branch? | **The assistant**, locally from `main` `b6dac9c` (Muaaz, 2026-11-26); Muaaz pushes. |
+| 5 | Colab check? The model default is already `window_t=3` (`anyup/model.py:25`), so passing `cfg.window_t = 3` changes nothing at runtime, and the pytest already proves 3 / 4 / `None` are equal at 4 tubelets. | **Cells 1–7 + the new print** (Muaaz, 2026-11-26): run up to the model build in Colab and check that it prints `window_t=3`. No training step, no added GPU memory. Replaces the old Step 3 (a T=8 debug step with equal losses). |
 
 ## Design
 
@@ -73,7 +75,7 @@ print(f"AnyUp3D: t_k={anyup.t_k}  window_t={anyup.cross_decode.window_t}")   # Q
 
 1. `tests/test_window_t.py` (CPU, small random model); run locally.
 2. Cell 3: `window_t = 3` (Q1). Cell 7: pass `window_t` and print the model's values (Q3). Clear outputs.
-3. Colab: one debug step at T=8 (4 tubelets). The losses should equal a run without the change, with the same seed and batch (Finding C).
+3. Cell 2: `REPO_BRANCH = "fix/window-t-passthrough"` for the Colab check. You commit and push. Colab (Q5): run cells 1–7; the cell 7 print must show `t_k=3  window_t=3`. Then `REPO_BRANCH` back to `"main"` on the branch, before the merge (as T04 / T01).
 
 ## Tests / Regression Checks
 
@@ -84,7 +86,7 @@ print(f"AnyUp3D: t_k={anyup.t_k}  window_t={anyup.cross_decode.window_t}")   # Q
 
 ## Done When
 
-- pytest passes; cell 7 passes `window_t`; the Colab debug step reproduces the unchanged losses.
+- pytest passes; cell 3 has `window_t = 3` and cell 7 passes it; the Colab check (Q5) prints `window_t=3`.
 - S13 updated with the facts above. `docs/DECISIONS.md` entry. This file's log and the Task Index are up to date.
 
 ## Implementation Log
@@ -101,3 +103,18 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - Check: `tests/test_upsamplers.py` 34 passed; both edited `.py` files parse.
 - Status stays `Q&A` until you OK the remaining steps (cells 3/7, test, Colab check). That work goes on its own branch after the teacher fix merges.
 - **2026-11-15: a Colab save set cell 3 `window_t` 4 → 3** (commit `c3a242e`), without cell 7 passing it to the model, so it had no effect. Reverted with the rest of the Colab saves (`dc63e01`, D-024). Q1's value 3 is applied in Step 2 of this task, together with the cell 7 change.
+- **2026-11-26: Q4–Q5 answered** (assistant creates the branch / Colab check = cells 1–7 + print). Re-checked against the current code first: cell 7 still builds `AnyUp(...)` without `window_t`, cell 3 still has `window_t: int = 4`, `anyup/model.py:25` defaults to 3, `anyup.cross_decode.window_t` exists (`cross_attention3d.py:81`). Branch `fix/window-t-passthrough` created from `main` `b6dac9c`. Steps 3 and Done When updated (old: T=8 debug step with equal losses → new: the print check, Q5). Waiting for your OK on this file.
+- **2026-11-26: file OK'd** (Muaaz: "yes implement"). Status Q&A → in progress.
+- **2026-11-26: Step 1 done.** New `tests/test_window_t.py` (CPU, `AnyUp(qk_dim=32, num_heads=4, kernel_size_lfu=5, t_k=3, window_ratio=0.1)`, seed 0; one set of weights loaded `strict=True` into the `window_t` = 3 / 4 / `None` models, since `window_t` isn't a weight): `test_constructor_stores_window_t` ×3 (`model.window_t` and `cross_decode.window_t`), `test_equal_outputs_up_to_4_tubelets` (T_tok 1 / 2 / 4, `torch.equal`), `test_8_tubelets_window_t_matters` (T_tok 8, 16 frames).
+  - **Local CPU (venv, Python 3.12.10, torch 2.11.0+cpu): 5 passed.** Measured max |Δ| vs `window_t=3`, output (1, 24, T_tok, 8, 8): T_tok 4 → 4: 0.0, `None`: 0.0; T_tok 8 → 4: 0.627, `None`: 1.183. Confirms Findings C and D on a random model.
+- **2026-11-26: Step 2 done** (`Train_3D_full.ipynb`, +4 / −2 lines; edited via the parsed JSON, the file's formatting is unchanged):
+  - Cell 2: `REPO_BRANCH = "fix/window-t-passthrough"` (back to `"main"` before the merge).
+  - Cell 3: `window_t: int = 3` (was 4) with a comment (tubelets, passed in cell 7, no effect at ≤ window_t + 1 tubelets, not in the weights).
+  - Cell 7: `window_t=cfg.window_t` passed to `AnyUp(...)`; new print `AnyUp3D: t_k=…  window_t=…` from `anyup.cross_decode.window_t` (Q3).
+  - Checks (local): valid JSON, no outputs saved, all code cells parse. Cell 3 + cell 7's model build exec'd on CPU: prints `AnyUp3D: t_k=3  window_t=3`. `test_window_t.py` + `test_shared_image_encoding.py` + `test_temporal_dynamics_loss.py`: 27 passed.
+  - Committed and pushed at Muaaz's request ("commit and push"): `5155d9f` on `fix/window-t-passthrough` (new on GitHub).
+- **2026-11-26: Step 3 done: Colab check passes** (Q5; Tesla T4, PyTorch 2.14.1+cu130, fresh clone). Cell 2: `Code commit: 5155d9f feat: T02_training pass cfg.window_t (=3) to AnyUp and print it; window_t tests`. Cell 7: `AnyUp3D: t_k=3  window_t=3`; the 2D checkpoint loads (73 tensors, temporal centre-init); trainable params 1,540,736 (= Exp 0's count, so the architecture is unchanged).
+- **2026-11-26: close-out.** All Done When items met: `test_window_t.py` 5 passed (local CPU); cell 3 `window_t = 3`, cell 7 passes it; the Colab print shows `window_t=3`; S13 updated (stays open: the evaluation measurement is S13's, not this task's); D-033 in `docs/DECISIONS.md`; this log and the Task Index up to date. Status → done.
+  - `REPO_BRANCH` in cell 2 back to `"main"` on this branch, before the merge (as T04 / T01). Notebook check: valid JSON, no outputs, all code cells parse.
+  - Left: the merge into `main` (your call). S13 (which `window_t` evaluation should use; Munther's wrapper still uses 4) stays open.
+  - Not changed (outside Scope, for you to decide): `docs/context/project_context.md:28` still says the training notebook never passed `window_t`. That stays true for run_01 / run_02, but runs from this code pass 3.
