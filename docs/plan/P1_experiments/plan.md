@@ -107,3 +107,4 @@ Task IDs are global across all plans (P2 continues from the last P1 number). Sta
 | T09 | Interactive HTML documentation of Exp 0–3 (pages, steps, code, helper links) | B wrap-up | done | `T09_experiments_html_docs.md` |
 | T10 | Presentation-grade visual checks for Exp 1–3 (upgraded visual cells, `anyup/viz.py`, MP4/GIF) — P1 addendum | B wrap-up | in progress | `T10_visual_checks.md` |
 | T11 | Exp 3 debug notebook: resolution ceiling, local window, DINOv2 swap, Swin-T 448 (find the shared bottleneck) — P1 addendum | B diagnostics | in progress | `T11_exp3_debug.md` |
+| T12 | AnyUp3D diagnosis at 448² → 112² (Problem 2): frames per call 1/2/8, `window_t=0`, VideoMAE 224 (guide 2:1); feature diagnostics + visuals — P1 addendum | B diagnostics | in progress | `T12_anyup3d_diagnosis.md` |

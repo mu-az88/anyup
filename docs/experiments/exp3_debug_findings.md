@@ -72,7 +72,7 @@ Whatever the backbone: use a propagation grid of at least 112 on the short side,
 
 1. **Zero-shot backbone shift.** AnyUp3D was trained on VideoMAE features only, and DINOv2 is new to it. AnyUp2D's released checkpoint was trained on more varied features.
 2. **Temporal attention smears moving objects.** It attends to neighbouring frames (`window_t=4`). Fast motion (parkour, drift) could pull features to where the object *was*. This fits the "lost objects" pattern.
-3. **Shorter temporal context than in training.** We used 8 frames per call, and 4 at 112×200, because of memory. Exp 3 used 16. It is not clear whether this matters, since 112² (8 frames) is already bad.
+3. **Longer temporal context than in training** _(corrected in T12; this line first said "shorter")_. The step-6500 checkpoint was trained with 1 feature frame per call (steps 0–5000) and then 2 (steps 5000–6500); the 8-frame stage starts at step 15000. Test E used 8 frames per call (4 at 112×200), and Exp 3 used 16. The temporal RoPE coordinates are `linspace(0, 1, T)`, so the frame spacing also changes with the frames per call. In training the guide also had 2 frames per feature frame (VideoMAE tubelet); with DINOv2 it has 1. Tested in T12 (`experiments/exp3_anyup3d_diag.ipynb`).
 4. **Scale mismatch.** At 448 input the low-res grid is 32×32 → 112², a different token grid and output size than in training. Not checked.
 
 ### How to find out (cheap tests, T4, 5 clips, 448² → 112²)
