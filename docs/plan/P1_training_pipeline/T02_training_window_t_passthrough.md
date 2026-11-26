@@ -5,7 +5,7 @@
 | Task ID | T02_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
 | Branch | `fix/window-t-passthrough`, from `main` `b6dac9c` (Q4; the teacher fix, T04 and T01 are merged) |
-| Status | in progress |
+| Status | done (D-033); not merged yet |
 | Depends on | — (independent code; branch order only avoids notebook merge conflicts with the teacher fix) |
 | Blocks | Any training stage with more than 4 tubelets (T=16, skipped item S11): there `window_t` starts to matter |
 
@@ -112,4 +112,9 @@ _Updated live during implementation. Per step: what changed, files touched, test
   - Cell 3: `window_t: int = 3` (was 4) with a comment (tubelets, passed in cell 7, no effect at ≤ window_t + 1 tubelets, not in the weights).
   - Cell 7: `window_t=cfg.window_t` passed to `AnyUp(...)`; new print `AnyUp3D: t_k=…  window_t=…` from `anyup.cross_decode.window_t` (Q3).
   - Checks (local): valid JSON, no outputs saved, all code cells parse. Cell 3 + cell 7's model build exec'd on CPU: prints `AnyUp3D: t_k=3  window_t=3`. `test_window_t.py` + `test_shared_image_encoding.py` + `test_temporal_dynamics_loss.py`: 27 passed.
-  - Next (Step 3): you commit and push the branch, then run cells 1–7 on Colab and paste the cell 7 print.
+  - Committed and pushed at Muaaz's request ("commit and push"): `5155d9f` on `fix/window-t-passthrough` (new on GitHub).
+- **2026-11-26: Step 3 done: Colab check passes** (Q5; Tesla T4, PyTorch 2.14.1+cu130, fresh clone). Cell 2: `Code commit: 5155d9f feat: T02_training pass cfg.window_t (=3) to AnyUp and print it; window_t tests`. Cell 7: `AnyUp3D: t_k=3  window_t=3`; the 2D checkpoint loads (73 tensors, temporal centre-init); trainable params 1,540,736 (= Exp 0's count, so the architecture is unchanged).
+- **2026-11-26: close-out.** All Done When items met: `test_window_t.py` 5 passed (local CPU); cell 3 `window_t = 3`, cell 7 passes it; the Colab print shows `window_t=3`; S13 updated (stays open: the evaluation measurement is S13's, not this task's); D-033 in `docs/DECISIONS.md`; this log and the Task Index up to date. Status → done.
+  - `REPO_BRANCH` in cell 2 back to `"main"` on this branch, before the merge (as T04 / T01). Notebook check: valid JSON, no outputs, all code cells parse.
+  - Left: the merge into `main` (your call). S13 (which `window_t` evaluation should use; Munther's wrapper still uses 4) stays open.
+  - Not changed (outside Scope, for you to decide): `docs/context/project_context.md:28` still says the training notebook never passed `window_t`. That stays true for run_01 / run_02, but runs from this code pass 3.
