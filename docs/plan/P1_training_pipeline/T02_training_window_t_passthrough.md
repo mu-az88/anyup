@@ -5,7 +5,7 @@
 | Task ID | T02_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
 | Branch | `fix/window-t-passthrough`, from `main` `b6dac9c` (Q4; the teacher fix, T04 and T01 are merged) |
-| Status | done (D-033); not merged yet |
+| Status | done (D-033); merged into `main` (`dfb14dc`) |
 | Depends on | — (independent code; branch order only avoids notebook merge conflicts with the teacher fix) |
 | Blocks | Any training stage with more than 4 tubelets (T=16, skipped item S11): there `window_t` starts to matter |
 
@@ -117,4 +117,8 @@ _Updated live during implementation. Per step: what changed, files touched, test
 - **2026-11-26: close-out.** All Done When items met: `test_window_t.py` 5 passed (local CPU); cell 3 `window_t = 3`, cell 7 passes it; the Colab print shows `window_t=3`; S13 updated (stays open: the evaluation measurement is S13's, not this task's); D-033 in `docs/DECISIONS.md`; this log and the Task Index up to date. Status → done.
   - `REPO_BRANCH` in cell 2 back to `"main"` on this branch, before the merge (as T04 / T01). Notebook check: valid JSON, no outputs, all code cells parse.
   - Left: the merge into `main` (your call). S13 (which `window_t` evaluation should use; Munther's wrapper still uses 4) stays open.
-  - Not changed (outside Scope, for you to decide): `docs/context/project_context.md:28` still says the training notebook never passed `window_t`. That stays true for run_01 / run_02, but runs from this code pass 3.
+  - `docs/context/project_context.md:28`: left unchanged at close-out (outside Scope); updated after the merge at Muaaz's request, see below.
+- **2026-11-26: merged into `main`** (`dfb14dc`, merge commit, `--no-ff`) at Muaaz's request ("commit and merge, push main and delete the branch"). Checked on the merged `main`: `REPO_BRANCH = "main"`; `test_window_t.py` + `test_shared_image_encoding.py` + `test_temporal_dynamics_loss.py` + `test_losses.py` + `test_train_monitor.py` + `test_upsamplers.py` 98 passed (local CPU, 39 s).
+  - Docs after the merge (Muaaz: "update the docs"): `project_context.md:28` now says training passes `cfg.window_t = 3` since D-033; Task Index; D-033 follow-up.
+  - Branch `fix/window-t-passthrough` deleted, local + GitHub (tip `b6a6934`, an ancestor of `main`).
+  - Munther informed by an email drafted for Muaaz (training now passes 3; his wrapper's 4 unchanged; S13 open). Sending it is Muaaz's.

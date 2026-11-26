@@ -20,7 +20,7 @@ Task IDs run across all of Muaaz's plans (`P2_training` continues from the last 
 |---|---|---|---|---|
 | — | Teacher always sees 16 native-stride frames (pre-template) | — | done (D-023; T=8 → T04_training / S14); merged (D-026) | `teacher_16frame_plan.md` |
 | T01_training | Temporal loss matches teacher dynamics | — | done (D-032; T4 debug run passes, ratio 0.36–0.76 at full λ); merged (`f8136d6`); λ tuning (Step 6) deferred, to do later | `T01_training_temporal_dynamics_loss.md` |
-| T02_training | Pass `window_t` from the config to the model (S13) | — | done (D-033; Colab print `window_t=3`); not merged yet | `T02_training_window_t_passthrough.md` |
+| T02_training | Pass `window_t` from the config to the model (S13) | — | done (D-033; Colab print `window_t=3`); merged (`dfb14dc`) | `T02_training_window_t_passthrough.md` |
 | T03_training | Retire `train_3d.py`; `Train_3D_full.ipynb` is the training entry point | — | Q&A (all answered) | `T03_training_retire_train_3d_script.md` |
 | T04_training | Compute the image half once per training step, so T=8 fits on a T4 (S14) | — | done (D-031; T=8 10.26 GiB on a T4); merged (`726dd0c`) | `T04_training_shared_image_encoding.md` |
 | T05_training | Training monitor module: speed, memory, validation time, NaN and out-of-memory checks in every run (before T04) | — | done (D-028; merged, `547977c`) | `T05_training_train_monitor.md` |
