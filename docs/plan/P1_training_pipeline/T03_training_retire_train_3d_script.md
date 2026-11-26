@@ -5,7 +5,7 @@
 | Task ID | T03_training |
 | Plan | P1_training Training pipeline (`plan.md`) |
 | Branch | `chore/retire-train-3d-script`, from `main` `1cec4e7` (created by the assistant, as in T02 Q4) |
-| Status | done (D-034); not merged yet |
+| Status | done (D-034); merged into `main` (`7820013`) |
 | Depends on | — (Munther agreed, Q1) |
 | Blocks | — |
 
@@ -94,3 +94,4 @@ _Updated live during implementation. Per step: what changed, files touched, test
 - **2026-11-26: Step 4 done.** Full `pytest` again: **341 passed, 5 skipped, 2 errors** (same 2 `cv2` errors), 346 collected, 31 s. Collected test IDs before vs after: the only removed IDs are the 74 from the three deleted files (7 / 2 / 65), none added; passed 415 → 341 (−74), skipped 5 → 5. `checkpoints/anyup3d/` unchanged (the smoke test is gone).
   - `git diff --stat`: only the files in Design + the two doc notes (`Train_3D_full.ipynb`, `anyup/`, `train.py` untouched).
 - **2026-11-26: close-out.** All Done When items met: Steps 1–4 with both pytest counts recorded; the answer note in Munther's P1 plan; D-034; this log and the Task Index. Status → done. Left: the merge into `main` (your call). Note: tests now run in about 31 s instead of about 5 min, and a full local `pytest` no longer modifies tracked files in `checkpoints/anyup3d/`.
+- **2026-11-26: merged into `main`** (`7820013`, merge commit, `--no-ff`; branch commit `9973d07`) at Muaaz's request ("commit, merge. push and delete the branch"). Full `pytest` on the merged `main`: 341 passed, 5 skipped, 2 errors (the `cv2` ones), 31.9 s, as on the branch. Branch `chore/retire-train-3d-script` deleted locally (never pushed to GitHub). `CLAUDE.md`'s Active Context change was left out of this commit (open question to Muaaz: commit it or move it to `CLAUDE.local.md`).
