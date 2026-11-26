@@ -87,5 +87,5 @@ docs/
 The files below are loaded automatically. **To switch context, edit these lines.** The project context stays; swap the plan and task lines as the work moves on.
 
 @docs/context/project_context.md
-@docs/plan/P1_experiments/plan.md
-@docs/plan/P1_experiments/T05_exp2_exp3_refactor.md
+@docs/plan/P1_training_pipeline/plan.md
+@docs/plan/P1_training_pipeline/T03_training_retire_train_3d_script.md
