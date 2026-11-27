@@ -24,12 +24,13 @@ What AnyUp3D saw in training (`Train_3D_full.ipynb` `TrainConfig`, checkpoint st
 
 ## Scope
 
-- In scope: new `experiments/exp3_anyup3d_diag.ipynb` (diagnostic only; no change to `anyup/` or the Exp 3 notebook).
+- In scope: new `experiments/exp3_anyup3d_diag.ipynb` (diagnostic only; no change to the Exp 3 notebook). _Run 2 adds one opt-in change to `anyup/backbones.py` (VideoMAE at non-native input, Q&A 12) + `tests/test_videomae_pos.py`._
   - **Reference:** AnyUp2D and AnyUp3D (8 frames per call) on DINOv2-B 448² → 112², i.e. the T11 run-5 setting (regression check).
   - **Test T (temporal):** AnyUp3D with 1, 2 and 8 frames per call, and 8 frames with `window_t = 0` (temporal attention off, temporal convs still on).
   - **Test V (VideoMAE):** AnyUp3D's training backbone at its native 224 input, guide 2:1 as in training, 8 feature frames per call; AnyUp2D on the same features.
   - **Feature diagnostics** in every AnyUp3D run (computed on the fly, no extra resolution): per frame cos(AnyUp3D, AnyUp2D), input consistency of each upsampler (output avg-pooled back to the LR grid vs the LR features), by frame index and by position in the call.
   - Visuals per test (see Design).
+  - **Run 2 (Test V448, Cell 6b):** VideoMAE at 448 (28² tokens) with the interpolated position table: AnyUp2D, AnyUp3D 8 per call, 1 per call, `window_t 0`; plus a 448-vs-224 feature check (DINOv2 as reference). Run flags per test cell in Cell 2.
 - Out of scope: guide-resolution and window-ratio / upsampling-factor tests (declined, S11); resolution sweeps; bilinear; the mask fix (Problem 3); retraining; more than 3 clips.
 
 ## Q&A (decisions agreed before implementation)
@@ -47,6 +48,7 @@ What AnyUp3D saw in training (`Train_3D_full.ipynb` `TrainConfig`, checkpoint st
 | 9 | Tracking | **New task T12**, P1 addendum, on the existing branch `experiments-in-action-test`. |
 | 10 | VideoMAE `N_LAST` (Monzir: "make the rest of decisions by your own") | **6 feature frames** (≈ 12 video frames): the same number of context feature maps as the DINOv2 runs, so the propagation cost and rule are the same; only the time span is longer. _My decision._ |
 | 11 | Feature diagnostics (offered, not objected to) | **Kept** in every run: one extra AnyUp2D pass per chunk, no extra resolution. _My decision._ |
+| 12 | Run 2 (Monzir: "low resolution corrupts the experiment … test videomae with good resolution, like 112x112"; flags to skip the other tests) | 112² was already the propagation grid; what was low is the **token grid** (224 / 16 = 14²; 112² tokens would need a 1792 input). **VideoMAE input 448 → 28² tokens** (≈ DINOv2 448's 32²; 512 → 32² is one knob away), position table interpolated bicubically per feature frame (standard ViT practice; zero-shot for VideoMAE). Same 4 variants as on DINOv2 (2D, 3D 8/call, 1/call, `window_t 0`). Flags `RUN_REF / RUN_T / RUN_V224 / RUN_V448` (default: only V224 + V448); outputs to `n3_v448`; Cell 7 shows run 1 results (marked *) for runs not repeated. _My decisions: 448, the two extra variants, the feature check._ |
 
 ## Design
 
@@ -63,6 +65,7 @@ Notebook `experiments/exp3_anyup3d_diag.ipynb`, standalone (needs no other noteb
 4. **Cell 4 · Reference:** `ref2d` (AnyUp2D) and `t8` (AnyUp3D, 8 per call, `window_t 4`). Check: per-clip J&F = T11 run 5 (blackswan 0.937 / 0.880, bmx-trees 0.561 / 0.327, parkour 0.880 / 0.525; tolerance 0.002).
 5. **Cell 5 · Test T:** `t1`, `t2`, `t8_wt0` (a second AnyUp3D with `window_t = 0`).
 6. **Cell 6 · Test V:** `v_2d` (AnyUp2D), `v_3d` (AnyUp3D, guide 2:1).
+6b. **Cell 6b · Test V448 (run 2):** `res_check` (first chunk per clip: features at 448 avg-pooled to the 224 grid vs features at 224, per-pixel cosine; VideoMAE and DINOv2), then `v448_2d`, `v448_3d`, `v448_t1`, `v448_wt0`. VideoMAE AnyUp3D now takes sub-calls of `fpc` feature frames (guide 2:1 per sub-call).
 7. **Cell 7 · Results + visuals** (works on whatever finished):
    - Table: official J&F / J / F, lost object-frames, Δ vs AnyUp2D of the same backbone, per-clip J&F.
    - `bars.png`: J&F per run (DINOv2 group, VideoMAE group), lost % on the bars.
@@ -87,6 +90,7 @@ How to read the results (written into the notebook):
 ## Tests / Regression Checks
 
 - Local: `propagate_e` = `davis.propagate_labels` (exact, random features); the frames-per-call split covers every frame once, in order; VideoMAE guide index rule (f, min(f+1, last)) and the hold rule t → t // 2 on odd and even clip lengths; diagnostics on identical inputs give cos 1.
+- Run 2, local: `tests/test_videomae_pos.py` (identity at the same size, shape, time not mixed, constant stays constant, (t, h, w) layout, wrong size raises); adapter with real HF `VideoMAEModel` code (random init): 224 output bit-identical to the plain HF forward, 448 gives (8, 768, 28, 28).
 - Colab: Cell 4 reproduces T11 run 5 per-clip J&F (tolerance 0.002) → PASS / WARN; Cell 1 prints `global_step 6500` and the `t_schedule`.
 
 ## Done When
@@ -110,3 +114,16 @@ _Updated live during implementation._
   - Not verified: real T4 memory and time (estimate ≈ 30–45 min: T11 run 5 took ≈ 250 s per condition for parkour at this size); real VideoMAE through the 2:1 guide path (shapes checked only with the stub).
 - **`exp3_debug_findings.md` corrected:** Problem 2 hypothesis 3 said the inference context is shorter than in training; the checkpoint saw 1–2 feature frames per call, so it is longer. Rewritten with the training facts.
 - **Waiting for Monzir's Colab run** (Step 2).
+- **Step 2 (Colab T4 run, commit `e34ac8b`, all 7 runs finished, outputs in Drive `results/T12/anyup3d_diag/n3`).** Cell 4 check vs T11 run 5: 6/6 PASS. Peak GPU: ref2d 5.0, t8 10.4, t1 5.3, t2 6.1, t8_wt0 10.5, v_2d 3.4, v_3d 4.2 GiB; ≈ 23 min total.
+
+  | run | J&F | Δ vs 2D | lost obj-frames | cos(3D,2D) | in-cons | parkour | bmx-trees | blackswan |
+  |---|---|---|---|---|---|---|---|---|
+  | ref2d | 0.735 | — | 0 % | — | 0.883 | 0.880 | 0.561 | 0.937 |
+  | t8 | 0.514 | −0.220 | 15.2 % | 0.944 | 0.831 | 0.525 | 0.327 | 0.880 |
+  | t1 | 0.617 | −0.117 | 13.2 % | 0.965 | 0.855 | 0.804 | 0.378 | 0.911 |
+  | t2 | 0.539 | −0.195 | 18.5 % | 0.953 | 0.847 | 0.679 | 0.303 | 0.872 |
+  | t8_wt0 | 0.602 | −0.132 | 8.3 % | 0.953 | 0.853 | 0.737 | 0.404 | 0.864 |
+  | v_2d | 0.267 | — | 53.3 % | — | 0.978 | 0.119 | 0.085 | 0.778 |
+  | v_3d | 0.385 | +0.118 | 24.2 % | 0.967 | 0.944 | 0.208 | 0.248 | 0.836 |
+
+  Status stays in progress until Monzir agrees on the reading (Step 3).

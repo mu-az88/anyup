@@ -183,8 +183,12 @@ class BackboneAdapter(nn.Module):
 @register("videomae")
 class VideoMAEAdapter(BackboneAdapter):
     """
-    HF VideoMAE ViT-B/16, tubelet 2. Input must be exactly NUM_FRAMES frames at 224
+    HF VideoMAE ViT-B/16, tubelet 2. Input must be exactly NUM_FRAMES frames, at 224 by default
     (position embeddings are fixed). 16 frames → 8 feature frames; guide = frames[::2].
+
+    interpolate_pos=True (T12) allows another input size: the fixed sin-cos table, laid out as
+    (t, 14, 14), is resized bicubically per feature frame to (t, H/16, W/16), the standard ViT
+    practice for a new resolution. Zero-shot: VideoMAE was never trained at that size.
     """
 
     NUM_FRAMES = 16   # fixed by videomae-base position embeddings; padding of short chunks is T02's job
@@ -192,13 +196,26 @@ class VideoMAEAdapter(BackboneAdapter):
     patch_size = 16
     temporal_stride = 2
 
-    def __init__(self, device="cuda", input_size=224, guide_size=None, model_id: str = "MCG-NJU/videomae-base"):
+    def __init__(self, device="cuda", input_size=224, guide_size=None, model_id: str = "MCG-NJU/videomae-base",
+                 interpolate_pos: bool = False):
         super().__init__(device, input_size, guide_size)
         from transformers import VideoMAEModel
         self.model_id = model_id
         self.model = self._freeze(VideoMAEModel.from_pretrained(model_id))
-        if self.input_size != (self.model.config.image_size,) * 2:
-            raise ValueError(f"VideoMAE needs input_size={self.model.config.image_size}, got {self.input_size}")
+        native = (self.model.config.image_size,) * 2
+        self.interpolate_pos = self.input_size != native
+        if self.interpolate_pos:
+            if not interpolate_pos:
+                raise ValueError(f"VideoMAE needs input_size={native[0]} (or interpolate_pos=True), got {self.input_size}")
+            if self.input_size[0] % self.patch_size or self.input_size[1] % self.patch_size:
+                raise ValueError(f"input_size {self.input_size} must be a multiple of patch {self.patch_size}")
+            emb = self.model.embeddings
+            t_tok = self.NUM_FRAMES // self.model.config.tubelet_size
+            emb.position_embeddings = interpolate_videomae_pos(                      # (1, t·h·w, C), fixed (not a parameter)
+                emb.position_embeddings, t_tok,
+                (native[0] // self.patch_size, native[1] // self.patch_size),
+                (self.input_size[0] // self.patch_size, self.input_size[1] // self.patch_size))
+            emb.patch_embeddings.image_size = self.input_size                        # HF checks the input size against this
         self.temporal_stride = self.model.config.tubelet_size
 
     def _extract(self, x):
@@ -214,7 +231,22 @@ class VideoMAEAdapter(BackboneAdapter):
         return feats, frame_index
 
     def _extra_meta(self):
-        return dict(model_id=self.model_id)
+        return dict(model_id=self.model_id, interpolate_pos=self.interpolate_pos)
+
+
+def interpolate_videomae_pos(table: torch.Tensor, t: int, src_hw: Tuple[int, int], dst_hw: Tuple[int, int]) -> torch.Tensor:
+    """
+    VideoMAE position table (1, t·h·w, C), token order (t, h, w) → (1, t·H·W, C), bicubic in space,
+    time untouched. Same size → returned unchanged.
+    """
+    if tuple(src_hw) == tuple(dst_hw):
+        return table
+    C = table.shape[-1]
+    if table.shape[1] != t * src_hw[0] * src_hw[1]:
+        raise ValueError(f"table has {table.shape[1]} tokens, expected {t}·{src_hw[0]}·{src_hw[1]}")
+    x = table.reshape(t, src_hw[0], src_hw[1], C).permute(0, 3, 1, 2).float()      # (t, C, h, w)
+    x = torch.nn.functional.interpolate(x, size=tuple(dst_hw), mode="bicubic", align_corners=False)  # (t, C, H, W)
+    return x.permute(0, 2, 3, 1).reshape(1, -1, C).to(table.dtype)                  # (1, t·H·W, C)
 
 
 # ---------------------------------------------------------------------------
